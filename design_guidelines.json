@@ -1,0 +1,135 @@
+{
+  "theme": "light",
+  "design_philosophy": "Professional fintech CRM aesthetic focusing on data clarity, role-based hierarchy, and trust. Uses high-density layouts for data grids, strict structural grids, and distinct pipeline status indicators. Avoids generic SaaS look by implementing 'The Swiss Grid' for structural alignment and crisp, optical clarity.",
+  "typography": {
+    "headings": {
+      "font_family": "Outfit",
+      "weights": ["500", "600", "700"],
+      "usage": "Headers, large metric numbers, and auth pages."
+    },
+    "body": {
+      "font_family": "IBM Plex Sans",
+      "weights": ["400", "500", "600"],
+      "usage": "Data tables, forms, and general body text for maximum legibility in dense views."
+    },
+    "scale": {
+      "h1": "text-3xl lg:text-4xl tracking-tight leading-none",
+      "h2": "text-2xl lg:text-3xl tracking-tight",
+      "h3": "text-xl font-semibold",
+      "body": "text-sm leading-relaxed",
+      "small": "text-xs tracking-wider uppercase",
+      "data_metric": "text-3xl font-semibold tracking-tighter"
+    }
+  },
+  "colors": {
+    "primary": {
+      "DEFAULT": "#0F52BA",
+      "hover": "#0B3D8A",
+      "foreground": "#FFFFFF"
+    },
+    "brand_dark": {
+      "DEFAULT": "#0A192F",
+      "foreground": "#FFFFFF",
+      "description": "Used for sidebar and deep navy accents."
+    },
+    "background": {
+      "app": "#F8FAFC",
+      "card": "#FFFFFF",
+      "sidebar": "#0A192F"
+    },
+    "text": {
+      "primary": "#0F172A",
+      "secondary": "#475569",
+      "tertiary": "#94A3B8"
+    },
+    "border": {
+      "default": "#E2E8F0",
+      "focus": "#0F52BA"
+    },
+    "status": {
+      "created": {"bg": "#F1F5F9", "text": "#334155", "border": "#CBD5E1"},
+      "called": {"bg": "#FEF3C7", "text": "#92400E", "border": "#FDE68A"},
+      "contacted": {"bg": "#DBEAFE", "text": "#1E40AF", "border": "#BFDBFE"},
+      "converted": {"bg": "#DCFCE7", "text": "#166534", "border": "#BBF7D0"},
+      "rejected": {"bg": "#FEE2E2", "text": "#991B1B", "border": "#FECACA"}
+    }
+  },
+  "layouts": {
+    "dashboard": {
+      "sidebar": "w-64 fixed h-screen bg-brand_dark text-white border-r border-slate-800",
+      "main_content": "ml-64 p-6 lg:p-8 min-h-screen bg-app",
+      "header": "h-16 border-b border-border bg-card px-8 flex items-center justify-between sticky top-0 z-50",
+      "density": "High density grid. Use gap-4 or gap-6 for metric cards, gap-8 between major sections."
+    },
+    "bento_grid": {
+      "metrics_row": "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8",
+      "main_data": "grid grid-cols-1 lg:grid-cols-3 gap-6",
+      "table_span": "col-span-1 lg:col-span-2 or col-span-full for wide views"
+    }
+  },
+  "components": {
+    "cards": {
+      "style": "Flat Solid. bg-white border border-slate-200 rounded-md shadow-[0_1px_3px_rgba(0,0,0,0.02)]. No soft gradients.",
+      "padding": "p-5"
+    },
+    "tables": {
+      "style": "High-density. py-2.5 px-3 cells. border-b border-slate-100. hover:bg-slate-50/50 transition-colors.",
+      "header": "text-xs font-semibold uppercase tracking-wider text-slate-500 bg-slate-50/80 border-b border-slate-200 py-3 px-3 text-left"
+    },
+    "buttons": {
+      "primary": "bg-primary text-white hover:bg-primary/90 rounded-md px-4 py-2 text-sm font-medium transition-colors shadow-sm",
+      "outline": "border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-md px-4 py-2 text-sm font-medium transition-colors",
+      "sync": "bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-2 rounded-md px-4 py-2 text-sm shadow-sm font-medium"
+    },
+    "forms": {
+      "inputs": "w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all bg-white text-slate-900 outline-none"
+    },
+    "status_pill": {
+      "style": "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border"
+    }
+  },
+  "visual_enhancers": {
+    "shadows": "Strictly ambient and minimal. shadow-sm for cards. Avoid deep drop shadows on flat surfaces.",
+    "borders": "Visible grid borders for technical feel. border-collapse on tabular data.",
+    "icons": "lucide-react for sharp, consistent line weights. Standardize at 18px for body and 20px for sidebar."
+  },
+  "motion": {
+    "interactions": "Fast and snappy. 150ms ease-in-out for hovers and form focuses.",
+    "page_load": "Staggered fade-up for dashboard widgets.",
+    "sync_indicator": "Spinning animation (animate-spin) on the sync icon during active Google Sheet fetch."
+  },
+  "media": {
+    "image_urls": {
+      "auth_hero": {
+        "url": "https://images.pexels.com/photos/8112186/pexels-photo-8112186.jpeg",
+        "description": "Professional handshake in office, symbolizing growth partner onboarding and trust. Best for login/signup split screen."
+      },
+      "marketing_family": {
+        "url": "https://images.pexels.com/photos/7578891/pexels-photo-7578891.jpeg",
+        "description": "Happy couple with a new home, representing successful loan consolidation and financial freedom."
+      }
+    }
+  },
+  "accessibility": {
+    "contrast": "Ensure text meets APCA standards. Status pill text must have > 4.5:1 ratio against pill background.",
+    "testing": "All interactive elements MUST have data-testid attributes (e.g., data-testid='sync-sheet-btn', data-testid='assign-partner-dropdown')."
+  },
+  "instructions_to_main_agent": [
+    "CRITICAL: The codebase uses .js/.jsx extensions, NOT .tsx. Generate standard React JS code.",
+    "Prioritize Shadcn tables and forms. The CRM is data-dense; do not add unnecessary padding to table cells.",
+    "Implement the 'Sync Now' functionality with a loading state to indicate background fetching from Google Sheets (or mock it elegantly).",
+    "Create a robust Lead Detail view with an activity timeline (Notes, Status Changes) side-by-side with lead info.",
+    "Use 'Outfit' font for headings and 'IBM Plex Sans' for the dense data text.",
+    "Do NOT use transparent backgrounds for dropdowns or modals; always use Solid White with a border to avoid text clashing.",
+    "The admin dashboard sidebar should use the 'brand_dark' color to create a clear structural anchor.",
+    "Add empty states for tables (e.g., 'No leads found. Sync with Google Sheets to import data.')"
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "You tend to converge toward generic, 'on distribution' outputs. Make creative, distinctive frontends that surprise and delight.",
+    "Don't make generic centered layouts. Use grid-based left-aligned structured data.",
+    "You MUST NOT apply universal transition (transition: all). Use specific transitions (e.g., transition-colors, transition-transform).",
+    "You MUST NOT center align the app container (.App { text-align: center; }).",
+    "Use sonner for toast notifications.",
+    "Never use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯 for icons. Use lucide-react."
+  ]
+}

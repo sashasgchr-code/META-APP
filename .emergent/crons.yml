@@ -1,0 +1,8 @@
+crons:
+  - name: sync-leads-hourly
+    description: "Imports new leads from the Google Sheet into the CRM every hour"
+    cron: "0 * * * *"
+    endpoint: "{{BASE_URL}}/api/cron/sync-leads"
+    method: POST
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    enabled: true
