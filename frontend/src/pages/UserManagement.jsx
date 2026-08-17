@@ -18,15 +18,22 @@ export default function UserManagement() {
   const [newPw, setNewPw] = useState("");
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
+  const [showDeleted, setShowDeleted] = useState(false);
 
   const load = async () => {
     setLoading(true);
     try {
-      const { data } = await api.get("/users");
+      const { data } = await api.get("/users", { params: showDeleted ? { include_deleted: true } : {} });
       setUsers(data);
     } finally { setLoading(false); }
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [showDeleted]);
+
+  const restore = async (u) => {
+    setBusyId(u.user_id);
+    try { await api.patch(`/users/${u.user_id}/restore`); toast.success(`${u.name} restored`); load(); }
+    catch (e) { toast.error("Restore failed"); } finally { setBusyId(null); }
+  };
 
   const setApproval = async (u, approved) => {
     setBusyId(u.user_id);
@@ -69,6 +76,10 @@ export default function UserManagement() {
             <Clock size={12} /> {pending.length} pending approval
           </span>
         )}
+        <label className="ml-auto flex items-center gap-2 text-xs text-slate-500 cursor-pointer">
+          <input type="checkbox" data-testid="show-deleted-toggle" checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} className="accent-[#0F52BA]" />
+          Show deleted
+        </label>
       </header>
 
       <div className="p-6 lg:p-8">
@@ -134,7 +145,13 @@ export default function UserManagement() {
                         {u.role !== "admin" && (
                           <button data-testid={`delete-user-${u.user_id}`} disabled={busyId === u.user_id} onClick={() => removeUser(u)}
                             className="inline-flex items-center gap-1 border border-red-200 text-red-600 hover:bg-red-50 rounded-md px-2.5 py-1 text-xs font-medium transition-colors">
-                            Delete
+                            {u.deleted ? "Deleted" : "Delete"}
+                          </button>
+                        )}
+                        {u.deleted && (
+                          <button data-testid={`restore-user-${u.user_id}`} disabled={busyId === u.user_id} onClick={() => restore(u)}
+                            className="inline-flex items-center gap-1 border border-emerald-200 text-emerald-700 hover:bg-emerald-50 rounded-md px-2.5 py-1 text-xs font-medium transition-colors">
+                            Restore
                           </button>
                         )}
                       </div>

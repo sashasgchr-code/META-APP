@@ -571,10 +571,20 @@ async def list_leads(request: Request, status: Optional[str] = None, q: Optional
             "pages": max(1, (total + page_size - 1) // page_size)}
 
 @api_router.get("/leads/stats")
-async def lead_stats(user: dict = Depends(get_current_user)):
+async def lead_stats(user: dict = Depends(get_current_user), from_date: Optional[str] = None,
+                     to_date: Optional[str] = None, partner: Optional[str] = None):
     match = {}
     if user.get("role") not in STAFF_ROLES:
         match["assigned_partner_id"] = user["user_id"]
+    elif partner and partner != "ALL":
+        match["assigned_partner_id"] = partner
+    if from_date or to_date:
+        rng = {}
+        if from_date:
+            rng["$gte"] = from_date
+        if to_date:
+            rng["$lte"] = to_date + "T23:59:59"
+        match["created_at"] = rng
     total = await db.leads.count_documents(match)
     by_status = {}
     for s in CRM_STATUSES:
@@ -853,6 +863,31 @@ async def list_processors(user: dict = Depends(get_current_user)):
     return procs
 
 
+@api_router.get("/processors/workload")
+async def processor_workload(user: dict = Depends(get_current_user)):
+    if user.get("role") not in ("admin", "ops"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    procs = await db.users.find({"role": "processor", "deleted": {"$ne": True}},
+                                {"_id": 0, "user_id": 1, "name": 1}).to_list(500)
+    rows = []
+    for p in procs:
+        files = await db.leads.find({"status": "FILE", "assigned_processor_id": p["user_id"]}, {"_id": 0, "file": 1}).to_list(3000)
+        r = {"user_id": p["user_id"], "name": p["name"], "total": len(files),
+             "in_progress": 0, "login": 0, "approved": 0, "disbursed": 0}
+        for f in files:
+            banks = (f.get("file") or {}).get("banks", [])
+            if any(b.get("disbursed") == "Yes" for b in banks):
+                r["disbursed"] += 1
+            elif any(b.get("approval_status") == "Approved" for b in banks):
+                r["approved"] += 1
+            elif any(b.get("login_done") == "Yes" for b in banks):
+                r["login"] += 1
+            else:
+                r["in_progress"] += 1
+        rows.append(r)
+    return rows
+
+
 @api_router.patch("/leads/{lead_id}/processor")
 async def assign_processor(lead_id: str, inp: ProcessorInput, user: dict = Depends(get_current_user)):
     if user.get("role") not in ("admin", "ops", "processor"):
@@ -934,6 +969,48 @@ async def files_report(user: dict = Depends(get_current_user), from_date: Option
     return {"overall": compute(ranged), "this_month": compute(this_month)}
 
 
+@api_router.get("/files/report/export")
+async def files_report_export(user: dict = Depends(get_current_user), from_date: Optional[str] = None,
+                              to_date: Optional[str] = None, partner: Optional[str] = None, processor: Optional[str] = None):
+    match = {"status": "FILE"}
+    if user.get("role") == "growth_partner":
+        match["assigned_partner_id"] = user["user_id"]
+    elif user.get("role") == "processor":
+        match["assigned_processor_id"] = user["user_id"]
+    if partner and partner != "ALL":
+        match["assigned_partner_id"] = partner
+    if processor and processor != "ALL":
+        match["assigned_processor_id"] = processor
+    files = await db.leads.find(match, {"_id": 0}).to_list(5000)
+
+    def _in(f):
+        if not from_date and not to_date:
+            return True
+        dt = (f.get("file_created_at") or f.get("created_at") or "")[:10]
+        if from_date and dt < from_date:
+            return False
+        if to_date and dt > to_date:
+            return False
+        return True
+    files = [f for f in files if _in(f)]
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["Customer", "Phone", "City", "Growth Partner", "Processor", "File Date", "Bank",
+                "Eligible", "Eligible Amount", "Login Done", "Approval Status", "Approved Amount",
+                "Disbursed", "Disbursed Amount", "Commission Amount"])
+    for f in files:
+        fd = (f.get("file_created_at") or f.get("created_at") or "")[:10]
+        banks = (f.get("file") or {}).get("banks", []) or [{}]
+        for b in banks:
+            w.writerow([f.get("full_name", ""), f.get("phone", ""), f.get("city", ""),
+                        f.get("assigned_partner_name") or "", f.get("assigned_processor_name") or "", fd,
+                        b.get("bank_name", ""), b.get("eligible", ""), b.get("eligible_amount", ""),
+                        b.get("login_done", ""), b.get("approval_status", ""), b.get("approved_amount", ""),
+                        b.get("disbursed", ""), b.get("disbursed_amount", ""), b.get("commission_amount", "")])
+    return Response(content=out.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": 'attachment; filename="file_report.csv"'})
+
+
 @api_router.get("/settings")
 async def get_settings(user: dict = Depends(get_current_user)):
     return {"commission_per_conversion": await get_commission_rate()}
@@ -950,12 +1027,22 @@ async def update_settings(inp: SettingsInput, admin: dict = Depends(require_admi
 
 # ------------------- User management (admin) -------------------
 @api_router.get("/users")
-async def list_users(user: dict = Depends(require_admin)):
-    users = await db.users.find({"deleted": {"$ne": True}}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(1000)
+async def list_users(user: dict = Depends(require_admin), include_deleted: bool = False):
+    q = {} if include_deleted else {"deleted": {"$ne": True}}
+    users = await db.users.find(q, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(1000)
     for u in users:
         if u.get("role") in ("growth_partner", "processor"):
             u["assigned_leads"] = await db.leads.count_documents({"assigned_partner_id": u["user_id"]} if u["role"] == "growth_partner" else {"assigned_processor_id": u["user_id"]})
     return users
+
+
+@api_router.patch("/users/{user_id}/restore")
+async def restore_user(user_id: str, admin: dict = Depends(require_admin)):
+    target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    await db.users.update_one({"user_id": user_id}, {"$set": {"deleted": False}, "$unset": {"deleted_at": ""}})
+    return {"ok": True}
 
 
 @api_router.delete("/users/{user_id}")

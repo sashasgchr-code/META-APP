@@ -2,8 +2,7 @@ import React, { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
-import { RefreshCw, Users2, UserCheck, TrendingUp, Clock } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid } from "recharts";
+import { RefreshCw, Users2, UserCheck, TrendingUp, Clock } from "lucide-react";import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid } from "recharts";
 
 const STATUS_COLORS = {
   NEW: "#64748b", CALL_BACK: "#3b82f6", NOT_ANSWERING: "#f59e0b", SWITCHED_OFF: "#fb923c",
@@ -24,13 +23,18 @@ export default function Dashboard() {
   const { user } = useAuth();
   const [stats, setStats] = useState(null);
   const [syncing, setSyncing] = useState(false);
+  const [partners, setPartners] = useState([]);
+  const [f, setF] = useState({ from_date: "", to_date: "", partner: "ALL" });
 
   const load = async () => {
-    const { data } = await api.get("/leads/stats");
+    const params = {};
+    Object.entries(f).forEach(([k, v]) => { if (v && v !== "ALL") params[k] = v; });
+    const { data } = await api.get("/leads/stats", { params });
     setStats(data);
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [f]);
+  useEffect(() => { if (user?.role === "admin") api.get("/partners").then(({ data }) => setPartners(data)).catch(() => {}); }, [user]);
 
   const sync = async () => {
     setSyncing(true);
@@ -63,6 +67,28 @@ export default function Dashboard() {
       </header>
 
       <div className="p-6 lg:p-8">
+        <div className="flex flex-wrap items-end gap-3 mb-6">
+          <div>
+            <label className="text-xs text-slate-500">From</label>
+            <input data-testid="dash-from" type="date" value={f.from_date} onChange={(e) => setF({ ...f, from_date: e.target.value })} className="mt-1 block border border-slate-300 rounded-md px-3 py-2 text-sm outline-none focus:border-brand" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500">To</label>
+            <input data-testid="dash-to" type="date" value={f.to_date} onChange={(e) => setF({ ...f, to_date: e.target.value })} className="mt-1 block border border-slate-300 rounded-md px-3 py-2 text-sm outline-none focus:border-brand" />
+          </div>
+          {user?.role === "admin" && (
+            <div>
+              <label className="text-xs text-slate-500">Growth Partner</label>
+              <select data-testid="dash-partner" value={f.partner} onChange={(e) => setF({ ...f, partner: e.target.value })} className="mt-1 block border border-slate-300 rounded-md px-3 py-2 text-sm bg-white outline-none focus:border-brand">
+                <option value="ALL">All Partners</option>
+                {partners.map((p) => <option key={p.user_id} value={p.user_id}>{p.name}</option>)}
+              </select>
+            </div>
+          )}
+          {(f.from_date || f.to_date || f.partner !== "ALL") && (
+            <button data-testid="dash-clear" onClick={() => setF({ from_date: "", to_date: "", partner: "ALL" })} className="text-sm text-slate-500 hover:text-slate-700 py-2">Clear</button>
+          )}
+        </div>
         <div className="flex items-center gap-2 text-xs text-slate-500 mb-6">
           <Clock size={14} /> Last Google Sheet sync: <span className="font-medium text-slate-700" data-testid="last-sync-time">{lastSync}</span>
         </div>

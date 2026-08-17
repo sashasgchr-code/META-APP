@@ -153,26 +153,43 @@ function FileCard({ lead, onSave, canEdit }) {
               className="bg-brand text-white hover:bg-brand/90 rounded-md px-3 py-1.5 text-sm font-medium transition-colors flex items-center gap-1 disabled:opacity-60"><Save size={14} /> Save</button>
           : <span className="text-xs text-slate-400 italic">View only</span>}
       </div>
-      <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Customer & Employment</p>
+      <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Customer Details</p>
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-3 text-sm">
+        <div><p className="text-xs text-slate-400">Full Name</p><p className="text-slate-800 font-medium">{lead.full_name || "—"}</p></div>
+        <div><p className="text-xs text-slate-400">Mobile</p><p className="text-slate-800">{lead.phone || "—"}</p></div>
+        <div><p className="text-xs text-slate-400">Email</p><p className="text-slate-800 truncate">{lead.email || "—"}</p></div>
+      </div>
       <div className="grid grid-cols-2 gap-3 mb-4">
         <F label="Mother's Name" value={f.mother_name} onChange={set("mother_name")} disabled={d} />
         <F label="Current Address" value={f.current_address} onChange={set("current_address")} disabled={d} />
+      </div>
+      <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Employment Details</p>
+      <div className="grid grid-cols-2 gap-3 mb-4">
         <F label="Employment Type" value={f.employment_type} onChange={set("employment_type")} disabled={d} />
         <F label="Company Name" value={f.company_name} onChange={set("company_name")} disabled={d} />
         <F label="Net Salary (₹)" value={f.net_salary} onChange={set("net_salary")} type="number" disabled={d} />
         <F label="Office Address" value={f.office_address} onChange={set("office_address")} disabled={d} />
       </div>
-      <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Loan Requirement</p>
-      <div className="grid grid-cols-2 gap-3 mb-2">
+      <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Loan Requirements</p>
+      <div className="grid grid-cols-2 gap-3 mb-4">
         <F label="Type of Loan" value={f.loan_type} onChange={set("loan_type")} disabled={d} />
         <F label="CIBIL Score" value={f.cibil} onChange={set("cibil")} type="number" disabled={d} />
-        <F label="Loan Amount (₹)" value={f.loan_amount} onChange={set("loan_amount")} type="number" disabled={d} />
-        <F label="Tenure (months)" value={f.tenure} onChange={set("tenure")} type="number" disabled={d} />
+        <F label="Loan Amount Required (₹)" value={f.loan_amount} onChange={set("loan_amount")} type="number" disabled={d} />
+        <F label="Tenure Required (months)" value={f.tenure} onChange={set("tenure")} type="number" disabled={d} />
       </div>
-      <div className="mb-4">
-        <label className="text-xs font-medium text-slate-500">Existing Loans & Obligations</label>
-        <textarea value={f.existing_loans || ""} onChange={(e) => set("existing_loans")(e.target.value)} rows={2} disabled={d}
-          className="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 text-sm outline-none focus:border-brand disabled:bg-slate-50" />
+      <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Existing Loans & Obligations</p>
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        <F label="Monthly EMI Obligations (₹)" value={f.monthly_emi} onChange={set("monthly_emi")} disabled={d} />
+        <F label="Existing Loan 1" value={f.existing_loan_1} onChange={set("existing_loan_1")} disabled={d} />
+        <F label="Existing Loan 2" value={f.existing_loan_2} onChange={set("existing_loan_2")} disabled={d} />
+        <F label="Existing Loan 3" value={f.existing_loan_3} onChange={set("existing_loan_3")} disabled={d} />
+      </div>
+      <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Lead Source &amp; Status</p>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4 text-sm">
+        <div><p className="text-xs text-slate-400">Source Type</p><p className="text-slate-800">{lead.platform || "Agent"}</p></div>
+        <div><p className="text-xs text-slate-400">Growth Partner</p><p className="text-slate-800">{lead.assigned_partner_name || "—"}</p></div>
+        <div><p className="text-xs text-slate-400">Current Status</p><p className="text-slate-800">{(lead.status || "").replace(/_/g, " ")}</p></div>
+        <div><p className="text-xs text-slate-400">Created</p><p className="text-slate-800">{new Date(lead.file_created_at || lead.created_at).toLocaleDateString()}</p></div>
       </div>
       <div className="flex items-center justify-between mb-2">
         <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Bank Eligibilities ({banks.length})</p>

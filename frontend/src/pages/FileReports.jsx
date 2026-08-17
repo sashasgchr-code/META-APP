@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
-import { BarChart3, FolderOpen, Clock, LogIn, CheckCircle2, DollarSign, AlertTriangle, TrendingUp } from "lucide-react";
+import { BarChart3, FolderOpen, Clock, LogIn, CheckCircle2, DollarSign, AlertTriangle, TrendingUp, Download } from "lucide-react";
 
 const inr = (n) => `₹${Number(n || 0).toLocaleString("en-IN")}`;
 
@@ -23,6 +23,16 @@ export default function FileReports() {
   const [partners, setPartners] = useState([]);
   const [processors, setProcessors] = useState([]);
   const [f, setF] = useState({ from_date: "", to_date: "", partner: "ALL", processor: "ALL" });
+  const [workload, setWorkload] = useState([]);
+
+  const exportCsv = async () => {
+    const params = {};
+    Object.entries(f).forEach(([k, v]) => { if (v && v !== "ALL") params[k] = v; });
+    const res = await api.get("/files/report/export", { params, responseType: "blob" });
+    const url = URL.createObjectURL(res.data);
+    const a = document.createElement("a"); a.href = url; a.download = "file_report.csv"; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  };
 
   const load = useCallback(async () => {
     const params = {};
@@ -35,6 +45,7 @@ export default function FileReports() {
   useEffect(() => {
     if (user?.role === "admin") api.get("/partners").then(({ data }) => setPartners(data)).catch(() => {});
     if (isAdminOps || user?.role === "processor") api.get("/processors").then(({ data }) => setProcessors(data)).catch(() => {});
+    if (isAdminOps) api.get("/processors/workload").then(({ data }) => setWorkload(data)).catch(() => {});
   }, [user, isAdminOps]);
 
   const o = data?.overall;
@@ -46,6 +57,10 @@ export default function FileReports() {
       <header className="h-16 border-b border-border bg-white px-4 md:px-8 flex items-center gap-2 sticky top-0 z-30">
         <BarChart3 size={20} className="text-brand" />
         <h1 className="text-xl font-heading font-bold text-brand-dark">File Reports</h1>
+        <button data-testid="export-csv-btn" onClick={exportCsv}
+          className="ml-auto bg-brand text-white hover:bg-brand/90 rounded-md px-3 py-2 text-sm font-medium transition-colors flex items-center gap-1">
+          <Download size={15} /> Export CSV
+        </button>
       </header>
 
       <div className="p-4 md:p-8">
@@ -101,6 +116,35 @@ export default function FileReports() {
                 <Card label="Rejected" value={m.rejected} icon={AlertTriangle} accent="bg-red-50 text-red-600" />
               </div>
             </div>
+
+            {isAdminOps && workload.length > 0 && (
+              <div className="mt-8">
+                <h3 className="text-sm font-semibold text-brand-dark mb-3">Processor Workload</h3>
+                <div className="bg-white border border-slate-200 rounded-md shadow-sm overflow-x-auto">
+                  <table className="w-full border-collapse" data-testid="workload-table">
+                    <thead>
+                      <tr className="bg-slate-50/80 border-b border-slate-200">
+                        {["Processor", "Total Files", "In Progress", "Login", "Approved", "Disbursed"].map((h) => (
+                          <th key={h} className="text-xs font-semibold uppercase tracking-wider text-slate-500 py-3 px-3 text-left">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {workload.map((w) => (
+                        <tr key={w.user_id} className="border-b border-slate-100" data-testid={`workload-${w.user_id}`}>
+                          <td className="py-2.5 px-3 text-sm font-medium text-slate-800">{w.name}</td>
+                          <td className="py-2.5 px-3 text-sm font-semibold text-brand-dark">{w.total}</td>
+                          <td className="py-2.5 px-3 text-sm text-amber-600">{w.in_progress}</td>
+                          <td className="py-2.5 px-3 text-sm text-blue-600">{w.login}</td>
+                          <td className="py-2.5 px-3 text-sm text-emerald-600">{w.approved}</td>
+                          <td className="py-2.5 px-3 text-sm text-emerald-700">{w.disbursed}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>
