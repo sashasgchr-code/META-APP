@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
-import { Search, RefreshCw, MapPin } from "lucide-react";
+import { Search, RefreshCw, MapPin, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight } from "lucide-react";
 
 export const STATUS_STYLES = {
   NEW: "bg-slate-100 text-slate-700 border-slate-200",
@@ -28,18 +28,34 @@ export default function Leads() {
   const [partnerFilter, setPartnerFilter] = useState("ALL");
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [pages, setPages] = useState(1);
+  const [sortBy, setSortBy] = useState("created_time");
+  const [sortDir, setSortDir] = useState("desc");
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params = { status, partner: partnerFilter };
+      const params = { status, partner: partnerFilter, page, page_size: 25, sort_by: sortBy, sort_dir: sortDir };
       if (q) params.q = q;
       const { data } = await api.get("/leads", { params });
-      setLeads(data);
+      setLeads(data.items);
+      setTotal(data.total);
+      setPages(data.pages);
     } finally { setLoading(false); }
-  }, [status, q, partnerFilter]);
+  }, [status, q, partnerFilter, page, sortBy, sortDir]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { setPage(1); }, [status, q, partnerFilter, sortBy, sortDir]);
+
+  const toggleSort = (field) => {
+    if (sortBy === field) setSortDir(sortDir === "asc" ? "desc" : "asc");
+    else { setSortBy(field); setSortDir("asc"); }
+  };
+  const SortIcon = ({ field }) =>
+    sortBy !== field ? <ChevronsUpDown size={12} className="text-slate-300" />
+      : (sortDir === "asc" ? <ChevronUp size={12} /> : <ChevronDown size={12} />);
   useEffect(() => {
     if (user?.role === "admin") api.get("/partners").then(({ data }) => setPartners(data)).catch(() => {});
   }, [user]);
@@ -100,8 +116,21 @@ export default function Leads() {
             <table className="w-full border-collapse">
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-200">
-                  {["Name", "Contact", "City", "Loan Profile", "Status", "Growth Partner"].map((h) => (
-                    <th key={h} className="text-xs font-semibold uppercase tracking-wider text-slate-500 py-3 px-3 text-left">{h}</th>
+                  {[
+                    { h: "Name", f: "full_name" },
+                    { h: "Contact", f: null },
+                    { h: "City", f: "city" },
+                    { h: "Loan Profile", f: null },
+                    { h: "Status", f: "status" },
+                    { h: "Growth Partner", f: null },
+                  ].map(({ h, f }) => (
+                    <th key={h} className="text-xs font-semibold uppercase tracking-wider text-slate-500 py-3 px-3 text-left">
+                      {f ? (
+                        <button data-testid={`sort-${f}`} onClick={() => toggleSort(f)} className="inline-flex items-center gap-1 hover:text-brand transition-colors">
+                          {h} <SortIcon field={f} />
+                        </button>
+                      ) : h}
+                    </th>
                   ))}
                 </tr>
               </thead>
@@ -143,6 +172,21 @@ export default function Leads() {
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm">
+            <span className="text-slate-500" data-testid="leads-count-label">
+              {total} lead{total === 1 ? "" : "s"}{pages > 1 ? ` · page ${page} of ${pages}` : ""}
+            </span>
+            <div className="flex items-center gap-2">
+              <button data-testid="prev-page-btn" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                <ChevronLeft size={14} /> Prev
+              </button>
+              <button data-testid="next-page-btn" disabled={page >= pages} onClick={() => setPage((p) => Math.min(pages, p + 1))}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                Next <ChevronRight size={14} />
+              </button>
+            </div>
           </div>
         </div>
       </div>

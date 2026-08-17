@@ -7,6 +7,10 @@ import io
 import csv
 import re
 import hmac
+import ipaddress
+from html import escape
+from html.parser import HTMLParser
+from urllib.parse import urlparse
 import logging
 import asyncio
 from pathlib import Path
@@ -30,6 +34,11 @@ ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL', 'sasha.sgchr@gmail.com')
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'Admin@123456')
 WEBHOOK_CRON_SECRET = os.environ.get('WEBHOOK_CRON_SECRET', '')
 EMERGENT_SESSION_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
+EMAIL_BASE_URL = "https://integrations.emergentagent.com"
+EMAIL_KEY = os.environ.get("EMERGENT_EMAIL_KEY", "")
+EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "BankEzee CRM")
+EMAIL_REPLY_TO = os.environ.get("EMAIL_REPLY_TO")
+APP_BASE_URL = os.environ.get("APP_BASE_URL", "")
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -126,6 +135,118 @@ async def require_admin(user: dict = Depends(get_current_user)) -> dict:
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
+
+
+# ------------------- Email (Resend via Emergent proxy) -------------------
+_SHORTENERS = ("bit.ly", "tinyurl.com", "t.co", "is.gd", "cutt.ly", "goo.gl", "rebrand.ly")
+_CRED_ASK = ("reply with your password", "reply with the code", "send your password", "cvv",
+             "send us your password", "enter your password below", "confirm your card number",
+             "your full card number", "seed phrase", "recovery phrase", "verify your card",
+             "social security number", "confirm your bank details")
+_HOSTISH = re.compile(r"\b(?:https?://)?((?:[a-z0-9-]+\.)+[a-z]{2,})", re.I)
+
+
+def _host_ok(host: str) -> bool:
+    if not host or "xn--" in host:
+        return False
+    try:
+        ipaddress.ip_address(host)
+        return False
+    except ValueError:
+        pass
+    return not any(host == s or host.endswith("." + s) for s in _SHORTENERS)
+
+
+def _same_site(shown: str, real: str) -> bool:
+    return shown == real or real.endswith("." + shown) or shown.endswith("." + real)
+
+
+class _EmailScan(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.tags, self.urls, self.anchors = set(), [], []
+        self._href, self._text = None, []
+
+    def handle_starttag(self, tag, attrs):
+        self.tags.add(tag.lower())
+        self.urls += [v for k, v in attrs if k.lower() in ("href", "src") and v]
+        if tag.lower() == "a":
+            self._href = dict((k.lower(), v) for k, v in attrs).get("href")
+            self._text = []
+
+    def handle_data(self, data):
+        if self._href is not None:
+            self._text.append(data)
+
+    def handle_endtag(self, tag):
+        if tag.lower() == "a" and self._href is not None:
+            self.anchors.append((self._href, "".join(self._text)))
+            self._href, self._text = None, []
+
+
+def _assert_safe_email(subject: str, html: str) -> None:
+    scan = _EmailScan(); scan.feed(html)
+    if scan.tags & {"form", "input", "textarea", "select"}:
+        raise ValueError("No forms or input fields in email (G2)")
+    body = f"{subject}\n{html}".lower()
+    for p in _CRED_ASK:
+        if p in body:
+            raise ValueError(f"Email asks the recipient for credentials: {p!r} (G2)")
+    for url in scan.urls:
+        low = url.strip().lower()
+        if low.startswith(("mailto:", "tel:", "cid:", "#")):
+            continue
+        if not low.startswith("https://"):
+            raise ValueError(f"Email links/assets must be absolute https: {url!r} (G3)")
+        host = urlparse(low).hostname or ""
+        if not _host_ok(host) or urlparse(low).username is not None:
+            raise ValueError(f"Shortened, numeric-host or credential-bearing URL: {url!r} (G3)")
+    for href, text in scan.anchors:
+        real = urlparse(href.strip().lower()).hostname or ""
+        if not real:
+            continue
+        for m in _HOSTISH.finditer(text):
+            if not _same_site(m.group(1).lower(), real):
+                raise ValueError(f"Anchor text {m.group(1)!r} != real link host {real!r} (G3)")
+
+
+async def send_email(*, to: str, subject: str, html: str) -> Optional[str]:
+    _assert_safe_email(subject, html)
+    payload = {"to": [to], "subject": subject, "html": html, "from_name": EMAIL_FROM_NAME}
+    if EMAIL_REPLY_TO:
+        payload["contact_email"] = EMAIL_REPLY_TO
+    async with httpx.AsyncClient(timeout=30) as hc:
+        resp = await hc.post(f"{EMAIL_BASE_URL}/api/v1/email/send",
+                             headers={"X-Email-Key": EMAIL_KEY}, json=payload)
+    resp.raise_for_status()
+    return resp.json().get("id")
+
+
+async def notify_partner_assignment(partner: dict, lead: dict, admin_name: str):
+    if not partner.get("email") or not EMAIL_KEY:
+        return
+    try:
+        lead_url = f"{APP_BASE_URL}/leads/{lead['lead_id']}"
+        subject = f"New lead assigned to you — {lead.get('full_name') or 'Lead'}"
+        html = (
+            f'<table role="presentation" width="100%"><tr><td style="padding:24px;font-family:Arial,sans-serif;color:#0f172a">'
+            f'<h2 style="color:#0F52BA;margin:0 0 12px">New Lead Assigned</h2>'
+            f'<p>Hi {escape(partner["name"])},</p>'
+            f'<p>{escape(admin_name)} has assigned a new lead to you in {escape(EMAIL_FROM_NAME)}.</p>'
+            f'<table role="presentation" style="margin:16px 0;font-size:14px">'
+            f'<tr><td style="padding:4px 12px 4px 0;color:#64748b">Name</td><td><strong>{escape(lead.get("full_name") or "-")}</strong></td></tr>'
+            f'<tr><td style="padding:4px 12px 4px 0;color:#64748b">Phone</td><td>{escape(lead.get("phone") or "-")}</td></tr>'
+            f'<tr><td style="padding:4px 12px 4px 0;color:#64748b">City</td><td>{escape(lead.get("city") or "-")}</td></tr>'
+            f'<tr><td style="padding:4px 12px 4px 0;color:#64748b">Loan Profile</td><td>{escape(lead.get("employment_status") or "-")} · {escape(lead.get("outstanding_amount") or "-")}</td></tr>'
+            f'</table>'
+            f'<p><a href="{escape(lead_url)}" style="background:#0F52BA;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;display:inline-block">View lead in BankEzee CRM</a></p>'
+            f'<p style="font-size:12px;color:#888;margin-top:24px">Sent by {escape(EMAIL_FROM_NAME)}. We never ask for your password or card details by email.</p>'
+            f'</td></tr></table>'
+        )
+        await send_email(to=partner["email"], subject=subject, html=html)
+        logger.info(f"Assignment email sent to {partner['email']}")
+    except Exception as e:
+        logger.error(f"Assignment email failed: {e}")
 
 
 # ------------------- Google Sheet import -------------------
@@ -290,15 +411,20 @@ async def manual_sync(user: dict = Depends(get_current_user)):
     result = await sync_leads_from_sheet()
     return result
 
+SORT_FIELDS = {"created_time", "full_name", "city", "status"}
+
+
 @api_router.get("/leads")
 async def list_leads(request: Request, status: Optional[str] = None, q: Optional[str] = None,
-                     partner: Optional[str] = None, user: dict = Depends(get_current_user)):
+                     partner: Optional[str] = None, page: int = 1, page_size: int = 25,
+                     sort_by: str = "created_time", sort_dir: str = "desc",
+                     user: dict = Depends(get_current_user)):
     query = {}
     if user.get("role") != "admin":
         query["assigned_partner_id"] = user["user_id"]
     if status and status != "ALL":
         query["status"] = status
-    if partner and partner != "ALL":
+    if partner and partner != "ALL" and user.get("role") == "admin":
         query["assigned_partner_id"] = None if partner == "UNASSIGNED" else partner
     if q:
         rx = re.escape(q)
@@ -306,8 +432,16 @@ async def list_leads(request: Request, status: Optional[str] = None, q: Optional
                         {"email": {"$regex": rx, "$options": "i"}},
                         {"phone": {"$regex": rx, "$options": "i"}},
                         {"city": {"$regex": rx, "$options": "i"}}]
-    leads = await db.leads.find(query, {"_id": 0}).sort("created_time", -1).to_list(2000)
-    return leads
+    page = max(1, page)
+    page_size = min(max(1, page_size), 200)
+    if sort_by not in SORT_FIELDS:
+        sort_by = "created_time"
+    direction = 1 if sort_dir == "asc" else -1
+    total = await db.leads.count_documents(query)
+    cursor = db.leads.find(query, {"_id": 0}).sort(sort_by, direction).skip((page - 1) * page_size).limit(page_size)
+    items = await cursor.to_list(page_size)
+    return {"items": items, "total": total, "page": page, "page_size": page_size,
+            "pages": max(1, (total + page_size - 1) // page_size)}
 
 @api_router.get("/leads/stats")
 async def lead_stats(user: dict = Depends(get_current_user)):
@@ -368,7 +502,10 @@ async def assign_lead(lead_id: str, inp: AssignInput, user: dict = Depends(requi
     await db.leads.update_one({"lead_id": lead_id}, {"$set": {"assigned_partner_id": inp.partner_id,
                               "assigned_partner_name": partner_name, "updated_at": now_iso()},
                               "$push": {"activities": activity}})
-    return await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    updated = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if inp.partner_id and partner:
+        asyncio.create_task(notify_partner_assignment(partner, updated, user["name"]))
+    return updated
 
 @api_router.post("/leads/{lead_id}/notes")
 async def add_note(lead_id: str, inp: NoteInput, user: dict = Depends(get_current_user)):
