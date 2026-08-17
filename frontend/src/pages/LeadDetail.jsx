@@ -269,9 +269,23 @@ function DocumentsCard({ lead, reload }) {
     try { await api.delete(`/leads/${lead.lead_id}/documents/${d.doc_id}`); toast.success("Deleted"); reload(); }
     catch (e) { toast.error("Delete failed"); }
   };
+  const downloadZip = async () => {
+    try {
+      const res = await api.get(`/leads/${lead.lead_id}/documents/zip`, { responseType: "blob" });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement("a"); a.href = url; a.download = "documents.zip"; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (e) { toast.error("Download failed"); }
+  };
   return (
     <div className="bg-white border border-slate-200 rounded-md p-5 shadow-sm" data-testid="documents-card">
       <h3 className="text-sm font-semibold text-brand-dark flex items-center gap-2 mb-3"><FileText size={16} /> Documents ({docs.length})</h3>
+      {docs.length > 0 && (
+        <button data-testid="download-zip-btn" onClick={downloadZip}
+          className="mb-3 inline-flex items-center gap-1 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-md px-3 py-1.5 text-xs font-medium transition-colors">
+          <Download size={13} /> Download All ZIP
+        </button>
+      )}
       <div className="space-y-2 mb-4" data-testid="documents-list">
         {docs.length === 0 && <p className="text-sm text-slate-400">No documents uploaded yet.</p>}
         {docs.map((d) => (
@@ -302,8 +316,10 @@ export default function LeadDetail() {
   const { user } = useAuth();
   const [lead, setLead] = useState(null);
   const [partners, setPartners] = useState([]);
+  const [processors, setProcessors] = useState([]);
   const [note, setNote] = useState("");
   const [callOpen, setCallOpen] = useState(false);
+  const isStaffLike = ["admin", "ops", "processor"].includes(user?.role);
 
   const load = async () => {
     try { const { data } = await api.get(`/leads/${leadId}`); setLead(data); }
@@ -311,14 +327,14 @@ export default function LeadDetail() {
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [leadId]);
   useEffect(() => { if (user?.role === "admin") api.get("/partners").then(({ data }) => setPartners(data)).catch(() => {}); }, [user]);
+  useEffect(() => { if (isStaffLike) api.get("/processors").then(({ data }) => setProcessors(data)).catch(() => {}); }, [isStaffLike]);
+  const assignProcessor = async (pid) => { const { data } = await api.patch(`/leads/${leadId}/processor`, { processor_id: pid || null }); setLead(data); toast.success("Processor updated"); };
 
   const changeStatus = async (status) => { const { data } = await api.patch(`/leads/${leadId}/status`, { status }); setLead(data); toast.success(`Status → ${STATUS_LABEL(status)}`); };
   const assign = async (pid) => { const { data } = await api.patch(`/leads/${leadId}/assign`, { partner_id: pid || null }); setLead(data); toast.success("Assignment updated"); };
   const addNote = async () => { if (!note.trim()) return; const { data } = await api.post(`/leads/${leadId}/notes`, { text: note }); setLead(data); setNote(""); toast.success("Note added"); };
   const logCall = async (payload) => { const { data } = await api.post(`/leads/${leadId}/calls`, payload); setLead(data); toast.success("Call logged"); };
   const saveFile = async (fdata) => { const { data } = await api.patch(`/leads/${leadId}/file`, { data: fdata }); setLead(data); toast.success("File details saved"); };
-
-  const startCall = () => { setCallOpen(true); setTimeout(() => { window.location.href = `tel:${lead.phone}`; }, 50); };
 
   if (!lead) return <div className="p-8"><div className="h-8 w-8 rounded-full border-2 border-brand border-t-transparent animate-spin" /></div>;
   const timeline = [...(lead.activities || [])].reverse();
@@ -330,8 +346,8 @@ export default function LeadDetail() {
         <button data-testid="back-btn" onClick={() => navigate("/leads")} className="text-slate-500 hover:text-brand transition-colors"><ArrowLeft size={20} /></button>
         <h1 className="text-xl font-heading font-bold text-brand-dark">{lead.full_name || "Lead"}</h1>
         <StatusPill status={lead.status} />
-        <button data-testid="call-btn" onClick={startCall}
-          className="ml-auto bg-emerald-600 hover:bg-emerald-700 text-white rounded-md px-4 py-2 text-sm font-medium transition-colors flex items-center gap-2"><Phone size={16} /> Call</button>
+        <a data-testid="call-btn" href={`tel:${lead.phone}`} onClick={() => setCallOpen(true)}
+          className="ml-auto bg-emerald-600 hover:bg-emerald-700 text-white rounded-md px-4 py-2 text-sm font-medium transition-colors flex items-center gap-2"><Phone size={16} /> Call</a>
       </header>
 
       <div className="p-6 lg:p-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -343,7 +359,7 @@ export default function LeadDetail() {
                 <Phone size={16} className="text-slate-400 mt-0.5 shrink-0" />
                 <div>
                   <p className="text-xs text-slate-400 uppercase tracking-wider">Phone</p>
-                  <a data-testid="phone-dial-link" href={`tel:${lead.phone}`} onClick={() => setTimeout(() => setCallOpen(true), 300)}
+                  <a data-testid="phone-dial-link" href={`tel:${lead.phone}`} onClick={() => setCallOpen(true)}
                     className="text-sm text-brand font-medium hover:underline">{lead.phone || "—"}</a>
                 </div>
               </div>
@@ -372,6 +388,18 @@ export default function LeadDetail() {
                 {partners.map((p) => <option key={p.user_id} value={p.user_id}>{p.name}</option>)}
               </select>
             ) : <p className="text-sm text-slate-700">{lead.assigned_partner_name || "Not assigned"}</p>}
+            {lead.status === "FILE" && (
+              <div className="mt-4">
+                <h3 className="text-sm font-semibold text-brand-dark mb-2 flex items-center gap-2"><UserCog size={16} /> Processor</h3>
+                {isStaffLike ? (
+                  <select data-testid="processor-select" value={lead.assigned_processor_id || ""} onChange={(e) => assignProcessor(e.target.value)}
+                    className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white outline-none focus:border-brand">
+                    <option value="">Unassigned</option>
+                    {processors.map((p) => <option key={p.user_id} value={p.user_id}>{p.name}</option>)}
+                  </select>
+                ) : <p className="text-sm text-slate-700">{lead.assigned_processor_name || "Not assigned"}</p>}
+              </div>
+            )}
           </div>
 
           <div className="bg-white border border-slate-200 rounded-md p-5 shadow-sm">

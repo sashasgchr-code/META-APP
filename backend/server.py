@@ -7,6 +7,7 @@ import os
 import io
 import csv
 import re
+import zipfile
 import hmac
 import ipaddress
 from html import escape
@@ -62,6 +63,10 @@ class RegisterInput(BaseModel):
     email: EmailStr
     password: str
     phone: Optional[str] = ""
+    role: Optional[str] = "growth_partner"
+
+class ProcessorInput(BaseModel):
+    processor_id: Optional[str] = None
 
 class LoginInput(BaseModel):
     email: EmailStr
@@ -452,11 +457,12 @@ async def register(inp: RegisterInput):
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
     user_id = f"user_{uuid.uuid4().hex[:12]}"
+    role = inp.role if inp.role in ("growth_partner", "processor") else "growth_partner"
     doc = {
         "user_id": user_id,
         "email": inp.email.lower(),
         "name": inp.name.strip(),
-        "role": "growth_partner",
+        "role": role,
         "phone": inp.phone or "",
         "picture": "",
         "auth_provider": "password",
@@ -473,7 +479,9 @@ async def login(inp: LoginInput, response: Response):
     user = await db.users.find_one({"email": inp.email.lower()})
     if not user or not user.get("password_hash") or not verify_password(inp.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    if user.get("role") == "growth_partner" and not user.get("approved", False):
+    if user.get("deleted"):
+        raise HTTPException(status_code=403, detail="This account has been disabled.")
+    if user.get("role") in ("growth_partner", "processor") and not user.get("approved", False):
         raise HTTPException(status_code=403, detail="Your account is pending admin approval.")
     token = await create_session(user["user_id"])
     set_session_cookie(response, token)
@@ -602,7 +610,10 @@ async def update_status(lead_id: str, inp: LeadUpdate, user: dict = Depends(get_
     if user.get("role") not in STAFF_ROLES and lead.get("assigned_partner_id") != user["user_id"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     activity = {"type": "status_change", "detail": f"Status changed from {lead['status']} to {inp.status} by {user['name']}", "at": now_iso()}
-    await db.leads.update_one({"lead_id": lead_id}, {"$set": {"status": inp.status, "updated_at": now_iso()},
+    set_status = {"status": inp.status, "updated_at": now_iso()}
+    if inp.status == "FILE" and not lead.get("file_created_at"):
+        set_status["file_created_at"] = now_iso()
+    await db.leads.update_one({"lead_id": lead_id}, {"$set": set_status,
                               "$push": {"activities": activity}})
     updated = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
     if inp.status == "FILE" and lead.get("status") != "FILE":
@@ -667,6 +678,8 @@ async def log_call(lead_id: str, inp: CallLogInput, user: dict = Depends(get_cur
     set_fields = {"disposition": inp.disposition, "updated_at": now_iso()}
     if lead.get("status") != "FILE":
         set_fields["status"] = inp.disposition
+    if inp.disposition == "FILE" and not lead.get("file_created_at"):
+        set_fields["file_created_at"] = now_iso()
     if inp.docs_received is not None:
         set_fields["docs_received"] = inp.docs_received
     if inp.disposition == "FILE" and not lead.get("file"):
@@ -710,6 +723,35 @@ async def upload_document(lead_id: str, file: UploadFile = File(...), user: dict
            "uploaded_by": user["name"], "at": now_iso()}
     await db.leads.update_one({"lead_id": lead_id}, {"$push": {"documents": doc}, "$set": {"updated_at": now_iso()}})
     return doc
+
+
+@api_router.get("/leads/{lead_id}/documents/zip")
+async def download_documents_zip(lead_id: str, user: dict = Depends(require_staff)):
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0, "documents": 1, "full_name": 1})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    docs = lead.get("documents", [])
+    if not docs:
+        raise HTTPException(status_code=404, detail="No documents to download")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        seen = {}
+        for d in docs:
+            try:
+                stream = await fs_bucket.open_download_stream(ObjectId(d["doc_id"]))
+                data = await stream.read()
+            except Exception:
+                continue
+            name = d["filename"]
+            seen[name] = seen.get(name, 0) + 1
+            if seen[name] > 1:
+                stem, dot, ext = name.rpartition(".")
+                name = f"{stem}_{seen[name]}{dot}{ext}" if dot else f"{name}_{seen[name]}"
+            zf.writestr(name, data)
+    buf.seek(0)
+    fname = f"{(lead.get('full_name') or 'lead')}_documents.zip".replace(' ', '_')
+    return Response(content=buf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 @api_router.get("/leads/{lead_id}/documents/{doc_id}")
@@ -802,6 +844,96 @@ async def list_partners(user: dict = Depends(require_admin)):
     return partners
 
 
+@api_router.get("/processors")
+async def list_processors(user: dict = Depends(get_current_user)):
+    if user.get("role") not in ("admin", "ops", "processor"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    procs = await db.users.find({"role": "processor", "approved": True, "deleted": {"$ne": True}},
+                                {"_id": 0, "user_id": 1, "name": 1, "email": 1}).to_list(500)
+    return procs
+
+
+@api_router.patch("/leads/{lead_id}/processor")
+async def assign_processor(lead_id: str, inp: ProcessorInput, user: dict = Depends(get_current_user)):
+    if user.get("role") not in ("admin", "ops", "processor"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0, "lead_id": 1})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    pname = None
+    if inp.processor_id:
+        proc = await db.users.find_one({"user_id": inp.processor_id, "role": "processor"}, {"_id": 0})
+        if not proc:
+            raise HTTPException(status_code=404, detail="Processor not found")
+        pname = proc["name"]
+        detail = f"Processor set to {pname} by {user['name']}"
+    else:
+        detail = f"Processor unassigned by {user['name']}"
+    await db.leads.update_one({"lead_id": lead_id}, {"$set": {"assigned_processor_id": inp.processor_id,
+        "assigned_processor_name": pname, "updated_at": now_iso()},
+        "$push": {"activities": {"type": "processor", "detail": detail, "at": now_iso()}}})
+    return await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+
+
+@api_router.get("/files/report")
+async def files_report(user: dict = Depends(get_current_user), from_date: Optional[str] = None,
+                       to_date: Optional[str] = None, partner: Optional[str] = None, processor: Optional[str] = None):
+    match = {"status": "FILE"}
+    if user.get("role") == "growth_partner":
+        match["assigned_partner_id"] = user["user_id"]
+    elif user.get("role") == "processor":
+        match["assigned_processor_id"] = user["user_id"]
+    if partner and partner != "ALL":
+        match["assigned_partner_id"] = partner
+    if processor and processor != "ALL":
+        match["assigned_processor_id"] = processor
+    files = await db.leads.find(match, {"_id": 0}).to_list(5000)
+
+    def in_range(f):
+        if not from_date and not to_date:
+            return True
+        dt = (f.get("file_created_at") or f.get("created_at") or "")[:10]
+        if from_date and dt < from_date:
+            return False
+        if to_date and dt > to_date:
+            return False
+        return True
+
+    mkey = datetime.now(timezone.utc).strftime("%Y-%m")
+
+    def compute(items):
+        s = {"total_files": len(items), "in_progress": 0, "login": 0, "approved": 0, "disbursed": 0,
+             "rejected": 0, "approved_amount": 0.0, "disbursed_amount": 0.0, "pipeline_amount": 0.0}
+        for f in items:
+            banks = (f.get("file") or {}).get("banks", [])
+            has_login = any(b.get("login_done") == "Yes" for b in banks)
+            has_appr = any(b.get("approval_status") == "Approved" for b in banks)
+            has_disb = any(b.get("disbursed") == "Yes" for b in banks)
+            has_rej = any(b.get("approval_status") == "Rejected" for b in banks)
+            if has_disb:
+                s["disbursed"] += 1
+            elif has_appr:
+                s["approved"] += 1
+            elif has_login:
+                s["login"] += 1
+            elif has_rej:
+                s["rejected"] += 1
+            else:
+                s["in_progress"] += 1
+            for b in banks:
+                if b.get("approval_status") == "Approved":
+                    s["approved_amount"] += float(b.get("approved_amount") or 0)
+                if b.get("disbursed") == "Yes":
+                    s["disbursed_amount"] += float(b.get("disbursed_amount") or 0)
+                elif b.get("login_done") == "Yes":
+                    s["pipeline_amount"] += float(b.get("eligible_amount") or 0)
+        return s
+
+    ranged = [f for f in files if in_range(f)]
+    this_month = [f for f in files if (f.get("file_created_at") or f.get("created_at") or "")[:7] == mkey]
+    return {"overall": compute(ranged), "this_month": compute(this_month)}
+
+
 @api_router.get("/settings")
 async def get_settings(user: dict = Depends(get_current_user)):
     return {"commission_per_conversion": await get_commission_rate()}
@@ -819,11 +951,23 @@ async def update_settings(inp: SettingsInput, admin: dict = Depends(require_admi
 # ------------------- User management (admin) -------------------
 @api_router.get("/users")
 async def list_users(user: dict = Depends(require_admin)):
-    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(1000)
+    users = await db.users.find({"deleted": {"$ne": True}}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(1000)
     for u in users:
-        if u.get("role") == "growth_partner":
-            u["assigned_leads"] = await db.leads.count_documents({"assigned_partner_id": u["user_id"]})
+        if u.get("role") in ("growth_partner", "processor"):
+            u["assigned_leads"] = await db.leads.count_documents({"assigned_partner_id": u["user_id"]} if u["role"] == "growth_partner" else {"assigned_processor_id": u["user_id"]})
     return users
+
+
+@api_router.delete("/users/{user_id}")
+async def delete_user(user_id: str, admin: dict = Depends(require_admin)):
+    target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target.get("role") == "admin":
+        raise HTTPException(status_code=400, detail="Admin accounts cannot be deleted")
+    await db.users.update_one({"user_id": user_id}, {"$set": {"deleted": True, "deleted_at": now_iso()}})
+    await db.user_sessions.delete_many({"user_id": user_id})
+    return {"ok": True}
 
 
 @api_router.patch("/users/{user_id}/approve")
@@ -831,8 +975,8 @@ async def approve_user(user_id: str, inp: ApproveInput, admin: dict = Depends(re
     target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
-    if target.get("role") != "growth_partner":
-        raise HTTPException(status_code=400, detail="Only growth partner accounts require approval")
+    if target.get("role") not in ("growth_partner", "processor"):
+        raise HTTPException(status_code=400, detail="Only growth partner / processor accounts require approval")
     await db.users.update_one({"user_id": user_id}, {"$set": {"approved": inp.approved}})
     if inp.approved:
         asyncio.create_task(notify_partner_approved(target))
@@ -905,6 +1049,16 @@ async def seed_admin():
             "approved": True, "created_at": now_iso(),
         })
         logger.info(f"Seeded ops: {OPS_EMAIL}")
+    for pemail, pname in [("teja@bankezee.com", "Teja"), ("saikiran@bankezee.com", "Saikiran")]:
+        if not await db.users.find_one({"email": pemail}):
+            await db.users.insert_one({
+                "user_id": f"user_{uuid.uuid4().hex[:12]}",
+                "email": pemail, "name": pname, "role": "processor",
+                "phone": "", "picture": "", "auth_provider": "password",
+                "password_hash": hash_password("Processor@123"), "visible_password": "Processor@123",
+                "approved": True, "created_at": now_iso(),
+            })
+            logger.info(f"Seeded processor: {pemail}")
     # Migrate: auto-approve pre-existing accounts missing the flag
     await db.users.update_many({"approved": {"$exists": False}}, {"$set": {"approved": True}})
     # Backfill visible passwords for the seeded staff accounts

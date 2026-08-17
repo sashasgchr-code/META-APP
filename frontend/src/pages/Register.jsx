@@ -7,7 +7,7 @@ import { Landmark, Loader2 } from "lucide-react";
 export default function Register() {
   const { register } = useAuth();
   const navigate = useNavigate();
-  const [form, setForm] = useState({ name: "", email: "", phone: "", password: "" });
+  const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", role: "growth_partner" });
   const [busy, setBusy] = useState(false);
 
   const upd = (k) => (e) => setForm({ ...form, [k]: e.target.value });
@@ -39,6 +39,15 @@ export default function Register() {
         <p className="text-sm text-muted-foreground mt-2 mb-8">Generate leads, track conversions, and earn commissions.</p>
 
         <form onSubmit={handleSubmit} className="space-y-4 bg-white border border-slate-200 rounded-lg p-6 shadow-sm">
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">I am a</label>
+            <div className="mt-1 grid grid-cols-2 gap-2">
+              {[{ v: "growth_partner", l: "Growth Partner" }, { v: "processor", l: "Processor" }].map((r) => (
+                <button key={r.v} type="button" data-testid={`role-${r.v}`} onClick={() => setForm({ ...form, role: r.v })}
+                  className={`rounded-md px-3 py-2 text-sm font-medium border transition-colors ${form.role === r.v ? "bg-brand text-white border-brand" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}>{r.l}</button>
+              ))}
+            </div>
+          </div>
           <div>
             <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">Full Name</label>
             <input data-testid="register-name-input" required value={form.name} onChange={upd("name")}

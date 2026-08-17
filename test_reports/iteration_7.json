@@ -1,0 +1,49 @@
+{
+  "summary": "Iteration 8 features fully verified. Backend: 22/22 pytest passed (processor login for teja/saikiran, register-with-role=processor pending flow + admin approval, GET /api/processors role scoping (admin/ops/processor 200, growth_partner 403), PATCH /api/leads/{id}/processor persistence (admin/processor 200, partner 403), GET /api/files/report structure incl. overall + this_month with all 9 keys, role scoping (partner sees subset, processor sees own 1 lead, admin sees all), filters (processor + from_date), soft-delete non-admin user (removed from list, login 403 disabled, admin delete 400), regressions call-logs/files-stats/leads-list/FILE lead detail). Frontend: 21/21 UI checks passed - processor sees File Reports without partner/processor filters, admin sees both filters + selectable, User Management lists teja/saikiran with 16 delete-user buttons, admin FILE lead has processor-select with 3 options, Register page has both role-growth_partner and role-processor selectors, mobile-menu-btn visible at 390px and toggles nav-file-reports, partner priya sees processor name (Teja) read-only (no processor-select) and no filters on File Reports.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "File Reports", "issues": ["From/To date inputs use browser default <input type=\"date\"> instead of the shadcn Calendar component used elsewhere; minor consistency nit."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter8_processor_delete_reports.py",
+    "/app/test_reports/pytest/iter8.xml"
+  ],
+  "verifications_performed": [
+    "Backend: teja@bankezee.com and saikiran@bankezee.com login 200 with role=processor, approved=true",
+    "Backend: POST /api/auth/register {role:processor} returns {status:pending}; login blocked 403; PATCH /users/{id}/approve accepts processor role; then login 200",
+    "Backend: GET /api/processors -> admin/ops/processor 200 with Teja+Saikiran, no _id leaking; growth_partner 403",
+    "Backend: PATCH /api/leads/lead_55772c498293/processor persists assigned_processor_id + assigned_processor_name; partner 403; processor can assign",
+    "Backend: GET /api/files/report returns {overall,this_month} with total_files/in_progress/login/approved/disbursed/rejected/approved_amount/disbursed_amount/pipeline_amount; partner scoping (<= admin), processor scoping (>=1 for teja), processor filter narrows, from_date=2099-01-01 -> 0",
+    "Backend: DELETE /api/users/{id} on admin user -> 400; on partner -> 200, removed from /api/users list, login attempts 403 with 'disabled'/'deleted'; partner cannot DELETE 403",
+    "Backend regressions: /api/call-logs, /api/files/stats, /api/leads, /api/leads/lead_55772c498293 all 200",
+    "UI (Teja processor): nav-file-reports visible; File Reports page renders with only date filters (partner + processor filters correctly hidden); report metrics render",
+    "UI (Admin): report-partner + report-processor filters visible on File Reports; selecting Teja in processor filter re-queries",
+    "UI (Admin) User Management lists teja@bankezee.com and saikiran@bankezee.com; 16 delete-user-<id> buttons present",
+    "UI (Admin) FILE lead detail: processor-select present with 3 options (blank + Teja + Saikiran)",
+    "UI Register page has both data-testid=role-growth_partner and role-processor buttons",
+    "UI Mobile (390px): mobile-menu-btn present and visible; clicking it reveals nav-file-reports (sidebar slides in)",
+    "UI (Partner priya) FILE lead: no processor-select; page contains processor name 'Teja' as read-only",
+    "UI (Partner priya) /file-reports: neither report-partner nor report-processor filter is rendered"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py has grown to 1076 lines - still recommend splitting into routers (auth/users/leads/files/processors/reports) as flagged in prior iterations.",
+    "GET /api/files/report loads up to 5000 lead docs and computes stats in Python. This is fine for current scale but should move to a MongoDB aggregation pipeline before production scale (>10k FILE leads).",
+    "PATCH /api/leads/{id}/processor field naming is inconsistent with the review's stated schema: server uses assigned_processor_id / assigned_processor_name (matching assigned_partner_id convention), while the request spec informally referenced processor_id/processor_name. The current names are actually more consistent with the codebase - keep as-is but document in API notes.",
+    "FileReports.jsx uses <input type='date'> instead of the shadcn Calendar component used elsewhere; consider unifying for design consistency (minor).",
+    "DELETE /api/users/{id} soft-delete correctly clears sessions and excludes from list_users, but a 'restore' endpoint is missing - if an admin deletes a user by mistake, the only recovery is a direct DB write. Consider a PATCH /users/{id}/restore or including deleted users in list with an 'undelete' action.",
+    "Partner-view read-only processor name is shown as plain text; consider a visual chip/badge matching the assigned-partner display for parity."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter8_processor_delete_reports.py"],
+  "success_rate": {"backend": "100% (22/22)", "frontend": "100% (21/21 UI acceptance checks)"},
+  "test_credentials": "Admin sasha.sgchr@gmail.com/Admin@123456; Ops rama.saffronglobal@gmail.com/Ops@123456; Processors teja@bankezee.com/Processor@123 and saikiran@bankezee.com/Processor@123; Partner priya@example.com/Priya@123456",
+  "seed_data_creation": "Registered ephemeral TEST_proc_* and TEST_del_* users during tests and soft-deleted them at end. FILE lead lead_55772c498293 processor left assigned to Teja (as-was pre-test).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Processor field names on lead docs are assigned_processor_id and assigned_processor_name (not processor_id/processor_name). /api/files/report filter query param names: from_date, to_date, partner, processor (use 'ALL' or omit for all). Soft-deleted users get deleted:true and their sessions cleared; list_users excludes them but their historical assigned_partner_name/assigned_processor_name still show on leads (as designed). Register endpoint accepts optional role in ('growth_partner','processor'); anything else defaults to growth_partner. Approve endpoint (PATCH /users/{id}/approve) now allows both roles.",
+  "rca of the issue": "N/A - all acceptance criteria verified with no defects."
+}

@@ -65,7 +65,6 @@ export default function Leads() {
   const [selected, setSelected] = useState(new Set());
   const [bulkPartner, setBulkPartner] = useState("");
   const [callLead, setCallLead] = useState(null);
-  const startCall = (lead) => { setCallLead(lead); setTimeout(() => { window.location.href = `tel:${lead.phone}`; }, 50); };
   const logCallFor = async (payload) => { await api.post(`/leads/${callLead.lead_id}/calls`, payload); toast.success("Call logged"); load(); };
   useEffect(() => { setSelected(new Set()); }, [page, status, q, partnerFilter, sortBy, sortDir]);
   const toggleOne = (id) => { const s = new Set(selected); s.has(id) ? s.delete(id) : s.add(id); setSelected(s); };
@@ -200,12 +199,12 @@ export default function Leads() {
                     </td>
                     <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-2">
-                        <button data-testid={`call-link-${lead.lead_id}`} onClick={() => startCall(lead)}
+                        <a data-testid={`call-link-${lead.lead_id}`} href={`tel:${lead.phone}`} onClick={() => setCallLead(lead)}
                           className="h-7 w-7 rounded-full bg-emerald-50 text-emerald-600 hover:bg-emerald-100 flex items-center justify-center transition-colors shrink-0" title="Call">
                           <Phone size={14} />
-                        </button>
+                        </a>
                         <div>
-                          <button data-testid={`call-number-${lead.lead_id}`} onClick={() => startCall(lead)} className="text-sm text-brand hover:underline text-left">{lead.phone}</button>
+                          <a data-testid={`call-number-${lead.lead_id}`} href={`tel:${lead.phone}`} onClick={() => setCallLead(lead)} className="text-sm text-brand hover:underline">{lead.phone}</a>
                           <p className="text-xs text-slate-400">{lead.email}</p>
                         </div>
                       </div>

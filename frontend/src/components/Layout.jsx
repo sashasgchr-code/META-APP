@@ -1,16 +1,18 @@
-import React from "react";
+import React, { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { LayoutDashboard, Users2, UserCircle2, LogOut, Landmark, ShieldCheck, FolderOpen, PhoneCall } from "lucide-react";
+import { LayoutDashboard, Users2, UserCircle2, LogOut, Landmark, ShieldCheck, FolderOpen, PhoneCall, BarChart3, Menu, X } from "lucide-react";
 
 export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
 
   const navItems = [
     { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, testid: "nav-dashboard" },
     { to: "/leads", label: "Leads", icon: Users2, testid: "nav-leads" },
     { to: "/files", label: "Files", icon: FolderOpen, testid: "nav-files" },
+    { to: "/file-reports", label: "File Reports", icon: BarChart3, testid: "nav-file-reports" },
     { to: "/call-logs", label: "Call Logs", icon: PhoneCall, testid: "nav-call-logs" },
     ...(user?.role === "admin" ? [
       { to: "/partners", label: "Growth Partners", icon: UserCircle2, testid: "nav-partners" },
@@ -25,7 +27,12 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen bg-background">
-      <aside className="w-64 fixed h-screen bg-brand-dark text-white flex flex-col z-40">
+      <div className="md:hidden fixed top-0 left-0 right-0 h-14 bg-brand-dark text-white flex items-center gap-2 px-4 z-40">
+        <button data-testid="mobile-menu-btn" onClick={() => setOpen(true)}><Menu size={22} /></button>
+        <span className="font-heading font-bold">BankEzee CRM</span>
+      </div>
+      {open && <div className="md:hidden fixed inset-0 bg-black/40 z-40" onClick={() => setOpen(false)} />}
+      <aside className={`w-64 fixed h-screen bg-brand-dark text-white flex flex-col z-50 transition-transform duration-200 md:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`} onClick={() => setOpen(false)}>
         <div className="h-16 flex items-center gap-2 px-5 border-b border-white/10">
           <div className="h-8 w-8 rounded-md bg-brand flex items-center justify-center">
             <Landmark className="h-5 w-5 text-white" />
@@ -60,7 +67,7 @@ export default function Layout() {
           </button>
         </div>
       </aside>
-      <main className="ml-64 min-h-screen">
+      <main className="md:ml-64 pt-14 md:pt-0 min-h-screen">
         <Outlet />
       </main>
     </div>

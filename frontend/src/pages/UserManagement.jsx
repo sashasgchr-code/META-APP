@@ -6,6 +6,7 @@ import { ShieldCheck, Eye, EyeOff, KeyRound, Check, X, Loader2, Clock } from "lu
 const ROLE_STYLES = {
   admin: "bg-brand/10 text-brand border-brand/20",
   ops: "bg-violet-50 text-violet-700 border-violet-200",
+  processor: "bg-amber-50 text-amber-700 border-amber-200",
   growth_partner: "bg-slate-100 text-slate-700 border-slate-200",
 };
 
@@ -34,6 +35,16 @@ export default function UserManagement() {
       toast.success(approved ? `${u.name} approved` : `${u.name} revoked`);
       load();
     } catch (e) { toast.error("Action failed"); } finally { setBusyId(null); }
+  };
+
+  const removeUser = async (u) => {
+    if (!window.confirm(`Delete ${u.name}? Their historical data is kept for reports.`)) return;
+    setBusyId(u.user_id);
+    try {
+      await api.delete(`/users/${u.user_id}`);
+      toast.success(`${u.name} deleted`);
+      load();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Delete failed"); } finally { setBusyId(null); }
   };
 
   const savePassword = async () => {
@@ -96,7 +107,7 @@ export default function UserManagement() {
                       ) : <span className="text-xs text-slate-400">Google login</span>}
                     </td>
                     <td className="py-2.5 px-3">
-                      {u.role === "growth_partner" ? (
+                      {["growth_partner", "processor"].includes(u.role) ? (
                         u.approved
                           ? <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700"><Check size={13} /> Approved</span>
                           : <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700"><Clock size={13} /> Pending</span>
@@ -104,13 +115,13 @@ export default function UserManagement() {
                     </td>
                     <td className="py-2.5 px-3">
                       <div className="flex items-center gap-2">
-                        {u.role === "growth_partner" && !u.approved && (
+                        {["growth_partner", "processor"].includes(u.role) && !u.approved && (
                           <button data-testid={`approve-${u.user_id}`} disabled={busyId === u.user_id} onClick={() => setApproval(u, true)}
                             className="inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-60">
                             {busyId === u.user_id ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Approve
                           </button>
                         )}
-                        {u.role === "growth_partner" && u.approved && (
+                        {["growth_partner", "processor"].includes(u.role) && u.approved && (
                           <button data-testid={`revoke-${u.user_id}`} disabled={busyId === u.user_id} onClick={() => setApproval(u, false)}
                             className="inline-flex items-center gap-1 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-md px-2.5 py-1 text-xs font-medium transition-colors">
                             <X size={12} /> Revoke
@@ -120,6 +131,12 @@ export default function UserManagement() {
                           className="inline-flex items-center gap-1 border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-md px-2.5 py-1 text-xs font-medium transition-colors">
                           <KeyRound size={12} /> Password
                         </button>
+                        {u.role !== "admin" && (
+                          <button data-testid={`delete-user-${u.user_id}`} disabled={busyId === u.user_id} onClick={() => removeUser(u)}
+                            className="inline-flex items-center gap-1 border border-red-200 text-red-600 hover:bg-red-50 rounded-md px-2.5 py-1 text-xs font-medium transition-colors">
+                            Delete
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
