@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 5 (click-to-call, Call Logs report page, cascading bank eligibility, admin/ops-only file edit). Ran 8 targeted backend pytest tests (all pass) plus end-to-end Playwright UI checks for admin and growth partner (priya). Every acceptance criterion in the request is satisfied. No regressions in Leads / Files / assignment.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter5_calllogs_file.py",
+    "/app/test_reports/pytest/iter5.xml"
+  ],
+  "verifications_performed": [
+    "GET /api/call-logs admin=14 rows, ops=14 rows, partner priya=13 rows (scoped to leads assigned to her); rows sorted by 'at' desc; each row has lead_id, customer, mobile, city, lead_status, caller, at, duration_seconds, disposition",
+    "GET /api/call-logs unauthenticated -> 401/403",
+    "PATCH /api/leads/{id}/file admin: 200 with full cascade payload (PIRAMAL Eligible=yes -> Login=yes -> Approved -> Disbursed, commission_pct=1)",
+    "PATCH /api/leads/{id}/file ops: 200",
+    "PATCH /api/leads/{id}/file growth_partner priya: 403 (require_staff)",
+    "Persistence check: GET /api/leads/{id} returns saved bank fields (approval_status=approved, commission_pct=1.0, disbursed_amount=499712)",
+    "UI Leads: green call button a[data-testid=call-link-<lead_id>] with href='tel:+91...' present per row; clicking it does NOT navigate to /leads/<id> (contact cell has onClick stopPropagation)",
+    "UI Sidebar has data-testid=nav-call-logs; route /call-logs loads calllog-table-body with 14 rows for admin; column headers Date/Time, Caller, Customer, Mobile, City, Call Outcome, Duration, Lead Status all present; calllog-summary shows total calls + minutes ('14 calls · 7 min total')",
+    "UI Call Logs search filters rows client-side (search 'Emmadi' -> 5 rows; 'zzznope' -> 'No calls logged yet.')",
+    "UI Partner /call-logs shows scoped rows (13) and total minutes",
+    "UI Admin lead detail (lead_55772c498293): file-card shows Save button (save-file-btn), Add Bank (add-bank-btn); Save click triggers PATCH /api/leads/{id}/file -> 200 and success toast",
+    "UI Partner lead detail (lead_55772c498293): file-card shows 'View only' badge; NO save-file-btn, NO add-bank-btn; all 13 file-card inputs/selects are disabled (fully read-only)",
+    "Cascading UI verified in source (LeadDetail.jsx Sel/Section helpers) and via admin save round-trip: eligible=yes reveals amount+ROI+login section; login=yes reveals login-bank/app-id/sm fields + approval section; approved reveals amount/tenure/roi + disbursement section; disbursed=yes reveals date/bank/amount + commission_pct with client-side commission-<i> auto-calc"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now 877 lines — continues to grow past the 700-line guideline; splitting into routers (leads, calls, files, partners, auth) is still recommended.",
+    "LeadDetail.jsx is a single large file (>350 lines) with FileCard + CallModal + main detail; consider extracting FileCard/BankRow into own file for maintainability.",
+    "CallLogs table is fully client-side filtered (rows.filter). Fine at ~thousands, but if call volume grows a server-side filter/pagination would be preferable.",
+    "Commission calc happens client-side on change but is only persisted when Save is clicked — server does not recompute; acceptable but a future backend recompute-on-save would harden data integrity."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter5_calllogs_file.py"],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100% (all acceptance criteria verified)"},
+  "test_credentials": "Admin sasha.sgchr@gmail.com/Admin@123456; Ops rama.saffronglobal@gmail.com/Ops@123456; Partner priya@example.com/Priya@123456",
+  "seed_data_creation": "None. Used existing FILE lead lead_55772c498293 (Emmadi Thirupathi assigned to Priya) and existing call_logs.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 5 accepted. Call Logs UI table only renders after data loads — wait for calllog-summary to leave the '0 calls' initial state before counting rows. The FILE lead lead_55772c498293 already has a full cascade set (PIRAMAL Yes/Yes/Approved/Disbursed w/ 1% commission = ₹4,997.12). Prior regression files still relevant: test_converted_removal.py (statuses), test_calls_files.py (older; note: it still contains a 'CONVERTED' status assertion that legitimately fails post-removal — prefer test_converted_removal.py + test_iter5_calllogs_file.py for regression).",
+  "rca of the issue": "N/A — feature verification only, no defects found."
+}

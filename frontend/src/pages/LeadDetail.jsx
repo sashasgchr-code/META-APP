@@ -97,80 +97,145 @@ function CallModal({ phone, onClose, onSubmit }) {
   );
 }
 
-const F = ({ label, value, onChange, type = "text", placeholder }) => (
+const F = ({ label, value, onChange, type = "text", placeholder, disabled }) => (
   <div>
     <label className="text-xs font-medium text-slate-500">{label}</label>
-    <input type={type} value={value || ""} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
-      className="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 text-sm outline-none focus:border-brand" />
+    <input type={type} value={value || ""} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} disabled={disabled}
+      className="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 text-sm outline-none focus:border-brand disabled:bg-slate-50 disabled:text-slate-500" />
   </div>
 );
 
-function FileCard({ lead, onSave }) {
+const Sel = ({ label, value, onChange, options, disabled }) => (
+  <div>
+    <label className="text-xs font-medium text-slate-500">{label}</label>
+    <select value={value || ""} onChange={(e) => onChange(e.target.value)} disabled={disabled}
+      className="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white outline-none focus:border-brand disabled:bg-slate-50 disabled:text-slate-500">
+      <option value="">Select</option>
+      {options.map((o) => <option key={o} value={o}>{o}</option>)}
+    </select>
+  </div>
+);
+
+const Section = ({ title, children }) => (
+  <div className="mt-3 pt-3 border-t border-slate-100">
+    <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wider mb-2">{title}</p>
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">{children}</div>
+  </div>
+);
+
+function FileCard({ lead, onSave, canEdit }) {
   const [f, setF] = useState(lead.file || {});
   const [banks, setBanks] = useState(lead.file?.banks || []);
   const [saving, setSaving] = useState(false);
+  const d = !canEdit;
   const set = (k) => (v) => setF({ ...f, [k]: v });
-  const setBank = (i, k, v) => { const b = [...banks]; b[i] = { ...b[i], [k]: v }; setBanks(b); };
+  const setBank = (i, k, v) => {
+    const b = [...banks]; b[i] = { ...b[i], [k]: v };
+    if (k === "commission_pct" || k === "disbursed_amount" || k === "approved_amount") {
+      const base = Number(b[i].disbursed_amount || b[i].approved_amount || 0);
+      const pct = Number(b[i].commission_pct || 0);
+      b[i].commission_amount = base && pct ? Math.round(base * pct) / 100 : b[i].commission_amount;
+    }
+    setBanks(b);
+  };
 
   const save = async () => {
     setSaving(true);
-    try { await onSave({ ...f, banks }); toast.success("File details saved"); }
-    catch (e) { toast.error("Failed to save"); } finally { setSaving(false); }
+    try { await onSave({ ...f, banks }); } catch (e) {} finally { setSaving(false); }
   };
 
   return (
     <div className="bg-white border border-violet-200 rounded-md p-5 shadow-sm" data-testid="file-card">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-semibold text-violet-700 flex items-center gap-2"><FolderOpen size={16} /> Loan File Details</h3>
-        <button data-testid="save-file-btn" onClick={save} disabled={saving}
-          className="bg-brand text-white hover:bg-brand/90 rounded-md px-3 py-1.5 text-sm font-medium transition-colors flex items-center gap-1 disabled:opacity-60"><Save size={14} /> Save</button>
+        {canEdit
+          ? <button data-testid="save-file-btn" onClick={save} disabled={saving}
+              className="bg-brand text-white hover:bg-brand/90 rounded-md px-3 py-1.5 text-sm font-medium transition-colors flex items-center gap-1 disabled:opacity-60"><Save size={14} /> Save</button>
+          : <span className="text-xs text-slate-400 italic">View only</span>}
       </div>
       <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Customer & Employment</p>
       <div className="grid grid-cols-2 gap-3 mb-4">
-        <F label="Mother's Name" value={f.mother_name} onChange={set("mother_name")} />
-        <F label="Current Address" value={f.current_address} onChange={set("current_address")} />
-        <F label="Employment Type" value={f.employment_type} onChange={set("employment_type")} />
-        <F label="Company Name" value={f.company_name} onChange={set("company_name")} />
-        <F label="Net Salary (₹)" value={f.net_salary} onChange={set("net_salary")} type="number" />
-        <F label="Office Address" value={f.office_address} onChange={set("office_address")} />
+        <F label="Mother's Name" value={f.mother_name} onChange={set("mother_name")} disabled={d} />
+        <F label="Current Address" value={f.current_address} onChange={set("current_address")} disabled={d} />
+        <F label="Employment Type" value={f.employment_type} onChange={set("employment_type")} disabled={d} />
+        <F label="Company Name" value={f.company_name} onChange={set("company_name")} disabled={d} />
+        <F label="Net Salary (₹)" value={f.net_salary} onChange={set("net_salary")} type="number" disabled={d} />
+        <F label="Office Address" value={f.office_address} onChange={set("office_address")} disabled={d} />
       </div>
       <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Loan Requirement</p>
       <div className="grid grid-cols-2 gap-3 mb-2">
-        <F label="Type of Loan" value={f.loan_type} onChange={set("loan_type")} />
-        <F label="CIBIL Score" value={f.cibil} onChange={set("cibil")} type="number" />
-        <F label="Loan Amount (₹)" value={f.loan_amount} onChange={set("loan_amount")} type="number" />
-        <F label="Tenure (months)" value={f.tenure} onChange={set("tenure")} type="number" />
+        <F label="Type of Loan" value={f.loan_type} onChange={set("loan_type")} disabled={d} />
+        <F label="CIBIL Score" value={f.cibil} onChange={set("cibil")} type="number" disabled={d} />
+        <F label="Loan Amount (₹)" value={f.loan_amount} onChange={set("loan_amount")} type="number" disabled={d} />
+        <F label="Tenure (months)" value={f.tenure} onChange={set("tenure")} type="number" disabled={d} />
       </div>
       <div className="mb-4">
         <label className="text-xs font-medium text-slate-500">Existing Loans & Obligations</label>
-        <textarea value={f.existing_loans || ""} onChange={(e) => set("existing_loans")(e.target.value)} rows={2}
-          className="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 text-sm outline-none focus:border-brand" />
+        <textarea value={f.existing_loans || ""} onChange={(e) => set("existing_loans")(e.target.value)} rows={2} disabled={d}
+          className="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 text-sm outline-none focus:border-brand disabled:bg-slate-50" />
       </div>
       <div className="flex items-center justify-between mb-2">
         <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Bank Eligibilities ({banks.length})</p>
-        <button data-testid="add-bank-btn" onClick={() => setBanks([...banks, {}])} className="text-xs text-brand hover:underline flex items-center gap-1"><Plus size={12} /> Add Bank</button>
+        {canEdit && <button data-testid="add-bank-btn" onClick={() => setBanks([...banks, {}])} className="text-xs text-brand hover:underline flex items-center gap-1"><Plus size={12} /> Add Bank</button>}
       </div>
-      <div className="space-y-3">
+      <div className="space-y-4">
         {banks.map((b, i) => (
           <div key={i} className="border border-slate-200 rounded-md p-3 relative" data-testid={`bank-row-${i}`}>
-            <button onClick={() => setBanks(banks.filter((_, j) => j !== i))} className="absolute top-2 right-2 text-red-400 hover:text-red-600"><Trash2 size={14} /></button>
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-              <F label="Bank Name" value={b.bank_name} onChange={(v) => setBank(i, "bank_name", v)} />
-              <F label="Eligible Amount (₹)" value={b.eligible_amount} onChange={(v) => setBank(i, "eligible_amount", v)} type="number" />
-              <F label="ROI (%)" value={b.roi} onChange={(v) => setBank(i, "roi", v)} type="number" />
-              <div>
-                <label className="text-xs font-medium text-slate-500">Status</label>
-                <select value={b.status || ""} onChange={(e) => setBank(i, "status", e.target.value)}
-                  className="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white outline-none focus:border-brand">
-                  <option value="">Select</option>
-                  <option>Eligible</option><option>Login Done</option><option>Approved</option><option>Disbursed</option><option>Rejected</option>
-                </select>
-              </div>
-              <F label="Approved Amount (₹)" value={b.approved_amount} onChange={(v) => setBank(i, "approved_amount", v)} type="number" />
-              <F label="Commission (₹)" value={b.commission_amount} onChange={(v) => setBank(i, "commission_amount", v)} type="number" />
+            {canEdit && <button onClick={() => setBanks(banks.filter((_, j) => j !== i))} className="absolute top-2 right-2 text-red-400 hover:text-red-600"><Trash2 size={14} /></button>}
+            <p className="text-xs font-semibold text-emerald-700 mb-2">Bank #{i + 1}</p>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <F label="Bank Name" value={b.bank_name} onChange={(v) => setBank(i, "bank_name", v)} disabled={d} />
+              <Sel label="Eligible?" value={b.eligible} onChange={(v) => setBank(i, "eligible", v)} options={["Yes", "No"]} disabled={d} />
+              {b.eligible === "No" && <F label="Reason (Not Eligible)" value={b.ineligible_reason} onChange={(v) => setBank(i, "ineligible_reason", v)} disabled={d} />}
+              {b.eligible === "Yes" && <>
+                <F label="Eligible Amount (₹)" value={b.eligible_amount} onChange={(v) => setBank(i, "eligible_amount", v)} type="number" disabled={d} />
+                <F label="ROI (%)" value={b.roi} onChange={(v) => setBank(i, "roi", v)} type="number" disabled={d} />
+              </>}
             </div>
+
+            {b.eligible === "Yes" && (
+              <Section title="Login Status">
+                <Sel label="Login Done?" value={b.login_done} onChange={(v) => setBank(i, "login_done", v)} options={["Yes", "No"]} disabled={d} />
+                {b.login_done === "No" && <F label="Reason (No Login)" value={b.login_reason} onChange={(v) => setBank(i, "login_reason", v)} disabled={d} />}
+                {b.login_done === "Yes" && <>
+                  <F label="Login Bank" value={b.login_bank} onChange={(v) => setBank(i, "login_bank", v)} disabled={d} />
+                  <F label="Application ID" value={b.application_id} onChange={(v) => setBank(i, "application_id", v)} disabled={d} />
+                  <F label="SM Name" value={b.sm_name} onChange={(v) => setBank(i, "sm_name", v)} disabled={d} />
+                  <F label="SM Number" value={b.sm_number} onChange={(v) => setBank(i, "sm_number", v)} disabled={d} />
+                </>}
+              </Section>
+            )}
+
+            {b.eligible === "Yes" && b.login_done === "Yes" && (
+              <Section title="Approval Status">
+                <Sel label="Status" value={b.approval_status} onChange={(v) => setBank(i, "approval_status", v)} options={["Pending", "Approved", "Rejected"]} disabled={d} />
+                {b.approval_status === "Approved" && <>
+                  <F label="Approved Bank" value={b.approved_bank} onChange={(v) => setBank(i, "approved_bank", v)} disabled={d} />
+                  <F label="Approved Amount (₹)" value={b.approved_amount} onChange={(v) => setBank(i, "approved_amount", v)} type="number" disabled={d} />
+                  <F label="Tenure (months)" value={b.approval_tenure} onChange={(v) => setBank(i, "approval_tenure", v)} type="number" disabled={d} />
+                  <F label="ROI (%)" value={b.approval_roi} onChange={(v) => setBank(i, "approval_roi", v)} type="number" disabled={d} />
+                </>}
+              </Section>
+            )}
+
+            {b.approval_status === "Approved" && (
+              <Section title="Disbursement">
+                <Sel label="Disbursed?" value={b.disbursed} onChange={(v) => setBank(i, "disbursed", v)} options={["Yes", "No"]} disabled={d} />
+                {b.disbursed === "Yes" && <>
+                  <F label="Disbursal Date" value={b.disbursal_date} onChange={(v) => setBank(i, "disbursal_date", v)} type="date" disabled={d} />
+                  <F label="Disbursed Bank" value={b.disbursed_bank} onChange={(v) => setBank(i, "disbursed_bank", v)} disabled={d} />
+                  <F label="Disbursed Amount (₹)" value={b.disbursed_amount} onChange={(v) => setBank(i, "disbursed_amount", v)} type="number" disabled={d} />
+                  <F label="Commission %" value={b.commission_pct} onChange={(v) => setBank(i, "commission_pct", v)} type="number" disabled={d} />
+                  <div>
+                    <label className="text-xs font-medium text-slate-500">Commission Amount</label>
+                    <p className="mt-1 text-lg font-heading font-semibold text-emerald-600" data-testid={`commission-${i}`}>₹{Number(b.commission_amount || 0).toLocaleString("en-IN")}</p>
+                  </div>
+                </>}
+              </Section>
+            )}
           </div>
         ))}
+        {banks.length === 0 && <p className="text-sm text-slate-400">No banks added yet.</p>}
       </div>
     </div>
   );
@@ -196,7 +261,7 @@ export default function LeadDetail() {
   const assign = async (pid) => { const { data } = await api.patch(`/leads/${leadId}/assign`, { partner_id: pid || null }); setLead(data); toast.success("Assignment updated"); };
   const addNote = async () => { if (!note.trim()) return; const { data } = await api.post(`/leads/${leadId}/notes`, { text: note }); setLead(data); setNote(""); toast.success("Note added"); };
   const logCall = async (payload) => { const { data } = await api.post(`/leads/${leadId}/calls`, payload); setLead(data); toast.success("Call logged"); };
-  const saveFile = async (fdata) => { const { data } = await api.patch(`/leads/${leadId}/file`, { data: fdata }); setLead(data); };
+  const saveFile = async (fdata) => { const { data } = await api.patch(`/leads/${leadId}/file`, { data: fdata }); setLead(data); toast.success("File details saved"); };
 
   const startCall = () => { setCallOpen(true); setTimeout(() => { window.location.href = `tel:${lead.phone}`; }, 50); };
 
@@ -274,7 +339,7 @@ export default function LeadDetail() {
         </div>
 
         <div className="lg:col-span-2 space-y-6">
-          {lead.status === "FILE" && <FileCard key={lead.updated_at} lead={lead} onSave={saveFile} />}
+          {lead.status === "FILE" && <FileCard key={lead.updated_at} lead={lead} onSave={saveFile} canEdit={user?.role === "admin" || user?.role === "ops"} />}
 
           <div className="bg-white border border-slate-200 rounded-md p-5 shadow-sm">
             <h3 className="text-sm font-semibold text-brand-dark mb-3 flex items-center gap-2"><MessageSquare size={16} /> Notes</h3>

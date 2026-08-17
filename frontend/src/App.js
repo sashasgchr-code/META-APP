@@ -11,6 +11,7 @@ import Leads from "@/pages/Leads";
 import LeadDetail from "@/pages/LeadDetail";
 import Partners from "@/pages/Partners";
 import Files from "@/pages/Files";
+import CallLogs from "@/pages/CallLogs";
 import UserManagement from "@/pages/UserManagement";
 
 const Protected = ({ children }) => {
@@ -40,6 +41,7 @@ function AppRouter() {
         <Route path="/leads" element={<Leads />} />
         <Route path="/leads/:leadId" element={<LeadDetail />} />
         <Route path="/files" element={<Files />} />
+        <Route path="/call-logs" element={<CallLogs />} />
         <Route path="/partners" element={<Partners />} />
         <Route path="/users" element={<UserManagement />} />
       </Route>

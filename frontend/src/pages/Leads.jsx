@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
-import { Search, RefreshCw, MapPin, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, RefreshCw, MapPin, Phone, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight } from "lucide-react";
 
 export const STATUS_STYLES = {
   NEW: "bg-slate-100 text-slate-700 border-slate-200",
@@ -193,9 +193,17 @@ export default function Leads() {
                       <p className="text-sm font-medium text-slate-800">{lead.full_name || "—"}</p>
                       <p className="text-xs text-slate-400">{lead.campaign_name?.slice(0, 28)}</p>
                     </td>
-                    <td className="py-2.5 px-3">
-                      <p className="text-sm text-slate-700">{lead.phone}</p>
-                      <p className="text-xs text-slate-400">{lead.email}</p>
+                    <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center gap-2">
+                        <a data-testid={`call-link-${lead.lead_id}`} href={`tel:${lead.phone}`}
+                          className="h-7 w-7 rounded-full bg-emerald-50 text-emerald-600 hover:bg-emerald-100 flex items-center justify-center transition-colors shrink-0" title="Call">
+                          <Phone size={14} />
+                        </a>
+                        <div>
+                          <a href={`tel:${lead.phone}`} className="text-sm text-brand hover:underline">{lead.phone}</a>
+                          <p className="text-xs text-slate-400">{lead.email}</p>
+                        </div>
+                      </div>
                     </td>
                     <td className="py-2.5 px-3 text-sm text-slate-600"><span className="inline-flex items-center gap-1"><MapPin size={12} className="text-slate-400" />{lead.city || "—"}</span></td>
                     <td className="py-2.5 px-3">

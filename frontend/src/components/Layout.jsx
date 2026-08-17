@@ -1,7 +1,7 @@
 import React from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { LayoutDashboard, Users2, UserCircle2, LogOut, Landmark, ShieldCheck, FolderOpen } from "lucide-react";
+import { LayoutDashboard, Users2, UserCircle2, LogOut, Landmark, ShieldCheck, FolderOpen, PhoneCall } from "lucide-react";
 
 export default function Layout() {
   const { user, logout } = useAuth();
@@ -11,6 +11,7 @@ export default function Layout() {
     { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, testid: "nav-dashboard" },
     { to: "/leads", label: "Leads", icon: Users2, testid: "nav-leads" },
     { to: "/files", label: "Files", icon: FolderOpen, testid: "nav-files" },
+    { to: "/call-logs", label: "Call Logs", icon: PhoneCall, testid: "nav-call-logs" },
     ...(user?.role === "admin" ? [
       { to: "/partners", label: "Growth Partners", icon: UserCircle2, testid: "nav-partners" },
       { to: "/users", label: "User Management", icon: ShieldCheck, testid: "nav-users" },

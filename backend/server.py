@@ -678,12 +678,10 @@ async def log_call(lead_id: str, inp: CallLogInput, user: dict = Depends(get_cur
 
 
 @api_router.patch("/leads/{lead_id}/file")
-async def save_file(lead_id: str, inp: FileInput, user: dict = Depends(get_current_user)):
+async def save_file(lead_id: str, inp: FileInput, user: dict = Depends(require_staff)):
     lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
-    if user.get("role") not in STAFF_ROLES and lead.get("assigned_partner_id") != user["user_id"]:
-        raise HTTPException(status_code=403, detail="Not authorized")
     activity = {"type": "file", "detail": f"{user['name']} updated file details", "at": now_iso()}
     await db.leads.update_one({"lead_id": lead_id}, {"$set": {"file": inp.data, "updated_at": now_iso()},
                               "$push": {"activities": activity}})
@@ -700,6 +698,24 @@ async def files_stats(user: dict = Depends(get_current_user)):
     docs_received = await db.leads.count_documents({**file_match, "docs_received": True})
     return {"total_files": total_files, "docs_received": docs_received,
             "pending_docs": total_files - docs_received}
+
+
+@api_router.get("/call-logs")
+async def call_logs(user: dict = Depends(get_current_user)):
+    match = {"call_logs.0": {"$exists": True}}
+    if user.get("role") not in STAFF_ROLES:
+        match["assigned_partner_id"] = user["user_id"]
+    leads = await db.leads.find(match, {"_id": 0, "lead_id": 1, "full_name": 1, "phone": 1,
+            "city": 1, "status": 1, "call_logs": 1}).to_list(3000)
+    rows = []
+    for l in leads:
+        for c in l.get("call_logs", []):
+            rows.append({"lead_id": l["lead_id"], "customer": l.get("full_name"), "mobile": l.get("phone"),
+                         "city": l.get("city"), "lead_status": l.get("status"), "caller": c.get("user_name"),
+                         "at": c.get("at"), "duration_seconds": c.get("duration_seconds", 0),
+                         "disposition": c.get("disposition"), "reason": c.get("reason", "")})
+    rows.sort(key=lambda r: r["at"] or "", reverse=True)
+    return rows
 
 
 # ------------------- Partners routes -------------------
