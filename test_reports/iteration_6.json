@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 6 validated: (1) Leads-list call modal opens on click of call-link/call-number without navigating away, shows live timer, and Log Call posts /api/leads/{id}/calls; NOT_QUALIFIED reveals reason field; (2) Documents card on FILE lead detail is visible only to admin/ops; upload/download/delete work; partner is 403 and card is hidden. 16/16 backend pytest passed; UI flows for admin and partner (priya) all pass.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter6_documents.py",
+    "/app/test_reports/pytest/iter6.xml"
+  ],
+  "verifications_performed": [
+    "POST /api/leads/{id}/calls admin 200 (CALL_BACK), NOT_QUALIFIED accepted (frontend enforces reason)",
+    "POST /api/leads/{id}/documents admin PDF 200, admin PNG 200, ops JPG 200; response has doc_id/filename/size",
+    "POST .txt rejected 400; >10MB rejected 400; partner upload 403",
+    "GET /api/leads/{id} shows uploaded docs in documents[]",
+    "GET /api/leads/{id}/documents/{doc_id} admin 200 with content-type application/pdf and %PDF body; partner 403",
+    "DELETE /api/leads/{id}/documents/{doc_id} partner 403; admin 200 and doc removed from lead.documents",
+    "Regression: /api/call-logs, /api/files/stats, /api/leads list all 200",
+    "UI (admin) Leads: 25 call-link buttons present; clicking call-number-<id> opens data-testid=call-modal without URL change; timer increments (0m 1s observed); Log Call closes modal after submit",
+    "UI: NOT_QUALIFIED selection reveals disposition-reason input",
+    "UI (admin) FILE lead lead_55772c498293 detail: documents-card + upload-docs-input + documents-list all rendered; PDF upload appears immediately in documents-list with filename/size and delete controls",
+    "UI (partner priya) FILE lead: documents-card NOT rendered (correctly hidden)",
+    "UI (partner priya) Leads list: call modal still opens for their own calling workflow without navigation"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py grew to 923 lines; still recommended to split into routers (leads/calls/documents/files/partners/auth) per prior review.",
+    "Documents download uses inline Content-Disposition; UI triggers a blob download client-side. Fine, but attachment disposition + a filename param would harden direct-URL downloads if ever exposed.",
+    "Upload endpoint reads entire file into memory before size check; for the 10MB limit that is acceptable, but a streamed check would be cleaner and prevent memory pressure if MAX_DOC_BYTES is ever raised.",
+    "Content-type check relies solely on client-provided file.content_type; a magic-byte sniff would prevent a renamed .txt with a spoofed header (not exploitable now, defense-in-depth).",
+    "LeadDetail.jsx now 437 lines with FileCard + DocumentsCard + CallModal wrapper; splitting DocumentsCard into its own file would help maintainability."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter6_documents.py"],
+  "success_rate": {"backend": "100% (16/16)", "frontend": "100% (all acceptance criteria verified)"},
+  "test_credentials": "Admin sasha.sgchr@gmail.com/Admin@123456; Ops rama.saffronglobal@gmail.com/Ops@123456; Partner priya@example.com/Priya@123456",
+  "seed_data_creation": "Test upload PDFs/PNGs/JPGs are all deleted at end of test class (TEST_ prefix).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Documents endpoints live at /api/leads/{lead_id}/documents (POST/GET/DELETE), staff-only via require_staff, GridFS-backed. Frontend renders <DocumentsCard/> only when lead.status===FILE && user.role in [admin, ops]. Leads.jsx uses startCall() that sets callLead state then triggers tel: after 50ms; in headless browsers the tel: nav is a no-op so the modal remains open — that's expected. FILE lead lead_55772c498293 assigned to Priya is the go-to test lead.",
+  "rca of the issue": "N/A - feature verification only, no defects."
+}

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
-import { ArrowLeft, Phone, PhoneCall, Mail, MapPin, Briefcase, Wallet, Megaphone, Send, MessageSquare, Activity, UserCog, FolderOpen, Plus, Trash2, Save, Clock } from "lucide-react";
+import { ArrowLeft, Phone, PhoneCall, Mail, MapPin, Briefcase, Wallet, Megaphone, Send, MessageSquare, Activity, UserCog, FolderOpen, Plus, Trash2, Save, Clock, Upload, Download, FileText } from "lucide-react";
 import { StatusPill, STATUS_LABEL } from "@/pages/Leads";
 
 const STATUSES = ["NEW", "CALL_BACK", "NOT_ANSWERING", "SWITCHED_OFF", "NOT_INTERESTED", "NOT_QUALIFIED", "LEAD", "FILE"];
@@ -241,6 +241,61 @@ function FileCard({ lead, onSave, canEdit }) {
   );
 }
 
+function DocumentsCard({ lead, reload }) {
+  const [uploading, setUploading] = useState(false);
+  const docs = lead.documents || [];
+  const onUpload = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setUploading(true);
+    try {
+      for (const file of files) {
+        const fd = new FormData(); fd.append("file", file);
+        await api.post(`/leads/${lead.lead_id}/documents`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+      }
+      toast.success("Uploaded"); reload();
+    } catch (err) { toast.error(err?.response?.data?.detail || "Upload failed"); }
+    finally { setUploading(false); e.target.value = ""; }
+  };
+  const download = async (d) => {
+    try {
+      const res = await api.get(`/leads/${lead.lead_id}/documents/${d.doc_id}`, { responseType: "blob" });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement("a"); a.href = url; a.download = d.filename; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (e) { toast.error("Download failed"); }
+  };
+  const del = async (d) => {
+    try { await api.delete(`/leads/${lead.lead_id}/documents/${d.doc_id}`); toast.success("Deleted"); reload(); }
+    catch (e) { toast.error("Delete failed"); }
+  };
+  return (
+    <div className="bg-white border border-slate-200 rounded-md p-5 shadow-sm" data-testid="documents-card">
+      <h3 className="text-sm font-semibold text-brand-dark flex items-center gap-2 mb-3"><FileText size={16} /> Documents ({docs.length})</h3>
+      <div className="space-y-2 mb-4" data-testid="documents-list">
+        {docs.length === 0 && <p className="text-sm text-slate-400">No documents uploaded yet.</p>}
+        {docs.map((d) => (
+          <div key={d.doc_id} className="flex items-center justify-between border border-slate-100 rounded-md px-3 py-2 bg-slate-50/50" data-testid={`doc-${d.doc_id}`}>
+            <div className="min-w-0">
+              <p className="text-sm text-slate-800 truncate">{d.filename}</p>
+              <p className="text-xs text-slate-400">{(d.size / 1024).toFixed(1)}KB · {d.uploaded_by}</p>
+            </div>
+            <div className="flex items-center gap-3 shrink-0 pl-3">
+              <button data-testid={`doc-download-${d.doc_id}`} onClick={() => download(d)} className="text-slate-400 hover:text-brand transition-colors"><Download size={16} /></button>
+              <button data-testid={`doc-delete-${d.doc_id}`} onClick={() => del(d)} className="text-red-400 hover:text-red-600 transition-colors"><Trash2 size={16} /></button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <label data-testid="upload-docs-label" className="flex items-center justify-center gap-2 border-2 border-dashed border-slate-300 rounded-md py-3 text-sm text-slate-500 hover:border-brand hover:text-brand cursor-pointer transition-colors">
+        <Upload size={16} /> {uploading ? "Uploading..." : "Upload Documents"}
+        <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg" className="hidden" onChange={onUpload} data-testid="upload-docs-input" disabled={uploading} />
+      </label>
+      <p className="text-xs text-slate-400 mt-2">PDF, PNG, JPG (max 10MB each)</p>
+    </div>
+  );
+}
+
 export default function LeadDetail() {
   const { leadId } = useParams();
   const navigate = useNavigate();
@@ -340,6 +395,7 @@ export default function LeadDetail() {
 
         <div className="lg:col-span-2 space-y-6">
           {lead.status === "FILE" && <FileCard key={lead.updated_at} lead={lead} onSave={saveFile} canEdit={user?.role === "admin" || user?.role === "ops"} />}
+          {lead.status === "FILE" && (user?.role === "admin" || user?.role === "ops") && <DocumentsCard lead={lead} reload={load} />}
 
           <div className="bg-white border border-slate-200 rounded-md p-5 shadow-sm">
             <h3 className="text-sm font-semibold text-brand-dark mb-3 flex items-center gap-2"><MessageSquare size={16} /> Notes</h3>

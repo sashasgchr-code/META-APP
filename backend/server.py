@@ -1,7 +1,8 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, Header
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, Header, UploadFile, File
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorGridFSBucket
+from bson import ObjectId
 import os
 import io
 import csv
@@ -27,6 +28,7 @@ load_dotenv(ROOT_DIR / '.env')
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
+fs_bucket = AsyncIOMotorGridFSBucket(db)
 
 SHEET_ID = os.environ.get('GOOGLE_SHEET_ID', '1Ugq8BpctyY0ZdqxCknR1OdWGvvUW9Xa1FKBzs_Gyy_4')
 SHEET_CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid=0"
@@ -686,6 +688,50 @@ async def save_file(lead_id: str, inp: FileInput, user: dict = Depends(require_s
     await db.leads.update_one({"lead_id": lead_id}, {"$set": {"file": inp.data, "updated_at": now_iso()},
                               "$push": {"activities": activity}})
     return await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+
+
+ALLOWED_DOC_TYPES = {"application/pdf", "image/png", "image/jpeg", "image/jpg"}
+MAX_DOC_BYTES = 10 * 1024 * 1024
+
+
+@api_router.post("/leads/{lead_id}/documents")
+async def upload_document(lead_id: str, file: UploadFile = File(...), user: dict = Depends(require_staff)):
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0, "lead_id": 1})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    ctype = (file.content_type or "").lower()
+    if ctype not in ALLOWED_DOC_TYPES:
+        raise HTTPException(status_code=400, detail="Only PDF, PNG and JPG files are allowed")
+    data = await file.read()
+    if len(data) > MAX_DOC_BYTES:
+        raise HTTPException(status_code=400, detail="File exceeds 10MB limit")
+    grid_id = await fs_bucket.upload_from_stream(file.filename, data, metadata={"content_type": ctype, "lead_id": lead_id})
+    doc = {"doc_id": str(grid_id), "filename": file.filename, "content_type": ctype, "size": len(data),
+           "uploaded_by": user["name"], "at": now_iso()}
+    await db.leads.update_one({"lead_id": lead_id}, {"$push": {"documents": doc}, "$set": {"updated_at": now_iso()}})
+    return doc
+
+
+@api_router.get("/leads/{lead_id}/documents/{doc_id}")
+async def download_document(lead_id: str, doc_id: str, user: dict = Depends(require_staff)):
+    try:
+        stream = await fs_bucket.open_download_stream(ObjectId(doc_id))
+    except Exception:
+        raise HTTPException(status_code=404, detail="Document not found")
+    data = await stream.read()
+    ctype = (stream.metadata or {}).get("content_type", "application/octet-stream")
+    return Response(content=data, media_type=ctype,
+                    headers={"Content-Disposition": f'inline; filename="{stream.filename}"'})
+
+
+@api_router.delete("/leads/{lead_id}/documents/{doc_id}")
+async def delete_document(lead_id: str, doc_id: str, user: dict = Depends(require_staff)):
+    try:
+        await fs_bucket.delete(ObjectId(doc_id))
+    except Exception:
+        pass
+    await db.leads.update_one({"lead_id": lead_id}, {"$pull": {"documents": {"doc_id": doc_id}}})
+    return {"ok": True}
 
 
 @api_router.get("/files/stats")

@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import CallModal from "@/components/CallModal";
 import { toast } from "sonner";
 import { Search, RefreshCw, MapPin, Phone, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight } from "lucide-react";
 
@@ -63,6 +64,9 @@ export default function Leads() {
 
   const [selected, setSelected] = useState(new Set());
   const [bulkPartner, setBulkPartner] = useState("");
+  const [callLead, setCallLead] = useState(null);
+  const startCall = (lead) => { setCallLead(lead); setTimeout(() => { window.location.href = `tel:${lead.phone}`; }, 50); };
+  const logCallFor = async (payload) => { await api.post(`/leads/${callLead.lead_id}/calls`, payload); toast.success("Call logged"); load(); };
   useEffect(() => { setSelected(new Set()); }, [page, status, q, partnerFilter, sortBy, sortDir]);
   const toggleOne = (id) => { const s = new Set(selected); s.has(id) ? s.delete(id) : s.add(id); setSelected(s); };
   const allOnPage = leads.length > 0 && leads.every((l) => selected.has(l.lead_id));
@@ -111,6 +115,7 @@ export default function Leads() {
       </header>
 
       <div className="p-6 lg:p-8">
+        {callLead && <CallModal phone={callLead.phone} onClose={() => setCallLead(null)} onSubmit={logCallFor} />}
         <div className="flex flex-wrap items-center gap-3 mb-5">
           <div className="relative flex-1 min-w-[220px]">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -195,12 +200,12 @@ export default function Leads() {
                     </td>
                     <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-2">
-                        <a data-testid={`call-link-${lead.lead_id}`} href={`tel:${lead.phone}`}
+                        <button data-testid={`call-link-${lead.lead_id}`} onClick={() => startCall(lead)}
                           className="h-7 w-7 rounded-full bg-emerald-50 text-emerald-600 hover:bg-emerald-100 flex items-center justify-center transition-colors shrink-0" title="Call">
                           <Phone size={14} />
-                        </a>
+                        </button>
                         <div>
-                          <a href={`tel:${lead.phone}`} className="text-sm text-brand hover:underline">{lead.phone}</a>
+                          <button data-testid={`call-number-${lead.lead_id}`} onClick={() => startCall(lead)} className="text-sm text-brand hover:underline text-left">{lead.phone}</button>
                           <p className="text-xs text-slate-400">{lead.email}</p>
                         </div>
                       </div>
