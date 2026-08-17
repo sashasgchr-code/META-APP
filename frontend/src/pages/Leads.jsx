@@ -7,15 +7,20 @@ import { Search, RefreshCw, MapPin, ChevronUp, ChevronDown, ChevronsUpDown, Chev
 
 export const STATUS_STYLES = {
   NEW: "bg-slate-100 text-slate-700 border-slate-200",
-  CONTACTED: "bg-blue-50 text-blue-700 border-blue-200",
-  CALLED: "bg-amber-50 text-amber-700 border-amber-200",
-  CONVERTED: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  REJECTED: "bg-red-50 text-red-700 border-red-200",
+  CALL_BACK: "bg-blue-50 text-blue-700 border-blue-200",
+  NOT_ANSWERING: "bg-amber-50 text-amber-700 border-amber-200",
+  SWITCHED_OFF: "bg-orange-50 text-orange-700 border-orange-200",
+  NOT_INTERESTED: "bg-slate-100 text-slate-600 border-slate-200",
+  NOT_QUALIFIED: "bg-red-50 text-red-700 border-red-200",
+  LEAD: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  FILE: "bg-violet-50 text-violet-700 border-violet-200",
+  CONVERTED: "bg-emerald-100 text-emerald-800 border-emerald-300",
 };
-const STATUSES = ["ALL", "NEW", "CONTACTED", "CALLED", "CONVERTED", "REJECTED"];
+export const STATUS_LABEL = (s) => (s || "").replace(/_/g, " ");
+const STATUSES = ["ALL", "NEW", "CALL_BACK", "NOT_ANSWERING", "SWITCHED_OFF", "NOT_INTERESTED", "NOT_QUALIFIED", "LEAD", "FILE", "CONVERTED"];
 
 export const StatusPill = ({ status }) => (
-  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${STATUS_STYLES[status] || STATUS_STYLES.NEW}`}>{status}</span>
+  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${STATUS_STYLES[status] || STATUS_STYLES.NEW}`}>{STATUS_LABEL(status)}</span>
 );
 
 export default function Leads() {
@@ -116,7 +121,7 @@ export default function Leads() {
           <div className="flex gap-1.5 flex-wrap">
             {STATUSES.map((s) => (
               <button key={s} data-testid={`status-filter-${s}`} onClick={() => setStatus(s)}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${status === s ? "bg-brand text-white border-brand" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}>{s}</button>
+                className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${status === s ? "bg-brand text-white border-brand" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}>{s === "ALL" ? "ALL" : STATUS_LABEL(s)}</button>
             ))}
           </div>
           {user?.role === "admin" && (

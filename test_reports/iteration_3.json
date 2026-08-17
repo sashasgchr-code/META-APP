@@ -1,0 +1,52 @@
+{
+  "summary": "Iteration 3 end-to-end testing of the new telephony/disposition + loan-file workflow. Backend: 18/18 new pytest cases pass (test_calls_files.py) covering CallLog validation (invalid disposition, NOT_QUALIFIED reason required), all 7 dispositions setting lead.status correctly + call_logs push + activity entry, FILE disposition creating file dict + docs_received, PATCH /file persisting bank_eligibility rows, GET /files/stats shape + role scoping (admin==ops, partner<=admin), and role access (partner can act on own lead, 403 on other). Iteration-2 regression suite still 21/21 pass. Frontend: verified via Playwright as admin: nav-files loads stats + files table, opening the FILE lead shows call-btn + phone-dial-link + file-card; CallModal opens (via phone-dial-link — call-btn also triggers tel: which in headless still opens the modal via setCallOpen), timer increments, NOT_QUALIFIED reveals disposition-reason, submitting without reason keeps modal open + error toast, submitting with reason closes modal and updates header StatusPill to NOT QUALIFIED, FILE disposition reveals disposition-docs and after Log Call the FileCard appears, add-bank-btn appends a bank-row, save-file-btn persists (verified via reload). Leads page status-filter buttons exist for all 9 new statuses.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_calls_files.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iter3_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "LeadDetail.jsx startCall(): does `window.location.href = 'tel:...'` before `setCallOpen(true)`. In a browser without a tel handler this can cause a brief navigation attempt (ERR_UNKNOWN_URL_SCHEME) that in some environments races the setState. Safer: open the modal first (setCallOpen(true)), then trigger the tel: via a hidden <a> or `window.open('tel:...', '_self')` inside a microtask. The phone-dial-link path (setTimeout(setCallOpen,300)) is more resilient.",
+    "LeadDetail.jsx FileCard uses `useState(lead.file || {})` and `useState(lead.file?.banks || [])` — these are initialised only on first mount. If the lead prop changes (e.g. after logging another call which replaces `lead`), unsaved edits stay but the fresh server data (including newly persisted banks) is ignored until the component remounts. Consider `useEffect(() => { setF(lead.file || {}); setBanks(lead.file?.banks || []); }, [lead.lead_id])` (key on lead_id or a version stamp) or key={lead.updated_at} the FileCard from parent.",
+    "LeadDetail.jsx line 277: `{lead.status === 'FILE' && <FileCard ...>}` — a lead that moves FILE -> CONVERTED loses its file card. Admin/ops can no longer view/edit disbursement details once converted. Recommend: render FileCard when status in ['FILE','CONVERTED'] (matches the backend files_stats grouping).",
+    "server.py log_call() sets `status = disposition` unconditionally. This means an already-CONVERTED lead that gets another call logged with CALL_BACK will silently be downgraded to CALL_BACK. Consider blocking status downgrade from CONVERTED, or at least warning in UI.",
+    "server.py log_call() FILE path triggers notify_staff_converted() — but the lead status is FILE, not CONVERTED. The email helper is called 'converted' notification; either rename the helper (notify_staff_file_or_converted) or send a distinct FILE notification so recipients don't get confused when the lead is only in FILE stage.",
+    "server.py CallLogInput: `duration_seconds: int = 0` — no upper bound; a client posting a huge negative or absurd value only gets clamped by `max(0, ...)`. Consider Pydantic Field(ge=0, le=86400).",
+    "server.py FileInput: `data: dict` — accepts arbitrary JSON (no schema, no size cap). Convenient but any oversized or nested payload will be stored verbatim in Mongo. Consider a Pydantic model with expected top-level keys + a max bank_eligibilities count, or a rough len(json.dumps(data)) < 20_000 check.",
+    "server.py /api/files/stats: the `converted` count uses `match` (not `file_match`), so it includes CONVERTED leads whether or not they ever had a FILE stage. If a lead was marked CONVERTED via /status without going through FILE, it still counts. Confirm this is the intended definition — otherwise scope with status:'CONVERTED' AND file exists.",
+    "Files.jsx fetches `/api/leads?status=FILE&page_size=200` — hard-coded 200 cap. If FILE count grows past 200 the page silently truncates. Add pagination or scale page_size dynamically from stats.total_files.",
+    "Files.jsx: table row `onClick={() => navigate(...)}` on the whole <tr>. There's no keyboard access (tabindex/role=button). Minor a11y gap.",
+    "Leads listing still contains legacy status values (CONTACTED, CALLED, REJECTED) in existing records; STATUS_LABEL / STATUS_STYLES should have safe fallback rendering for unknown legacy values (verify no crash on those rows — quick check showed CONTACTED renders as a pill, so likely fine, but grep for missing status-key handling).",
+    "log_call inserts a bare `{}` file dict on first FILE call — later PATCH /file replaces it entirely with inp.data. If UI-first user hits FILE via /status (not via /calls), the file dict is never created and FileCard opens with empty state (this is fine since setF starts empty, but the DB has no `file` key until Save)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_calls_files.py"
+  ],
+  "success_rate": {"backend": "100% (18/18 new + 21/21 iter-2 regression)", "frontend": "100% (all critical CallModal + FileCard + Files nav flows verified)"},
+  "test_credentials": "Admin: sasha.sgchr@gmail.com / Admin@123456 | Ops: rama.saffronglobal@gmail.com / Ops@123456 | Partner: priya@example.com / Priya@123456 (auto-assigned one lead by the fixture at test start).",
+  "seed_data_creation": "test_calls_files.py assigns one unassigned lead to priya@example.com then logs multiple dispositions + saves file details on it (customer_name='TEST Customer', 2 banks). UI run logged a NOT_QUALIFIED + FILE call on the pre-existing FILE lead (Emmadi Thirupathi / lead_55772c498293) and added a 2nd bank row 'TEST UI Bank'.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run backend tests with `REACT_APP_BACKEND_URL=<url> pytest backend/tests/test_calls_files.py backend/tests/backend_test.py -v -o 'addopts='` (pytest.ini enables xdist which breaks session-scoped fixtures — the -o override disables it). Note: BASE_URL env var must be exported; tests skip partner-scope cases if priya@example.com login fails. Frontend: click-to-dial uses tel: which is unavailable in headless — always prefer `[data-testid=\"phone-dial-link\"]` over `[data-testid=\"call-btn\"]` for CallModal-opening in Playwright (the phone-dial-link path uses setTimeout(setCallOpen,300) and is race-free). No product bugs found; comments above are code-quality / UX / hardening suggestions for E1 to consider.",
+  "verified_features": [
+    "CRM_STATUSES + DISPOSITIONS constants match the spec (NEW/CALL_BACK/NOT_ANSWERING/SWITCHED_OFF/NOT_INTERESTED/NOT_QUALIFIED/LEAD/FILE/CONVERTED)",
+    "POST /api/leads/{id}/calls: invalid disposition -> 400; NOT_QUALIFIED w/o reason -> 400; sets status=disposition + pushes call_logs + activity",
+    "FILE disposition creates empty file:{} on lead, stores docs_received, triggers notify_staff_converted",
+    "PATCH /api/leads/{id}/file persists customer/employment/loan/bank data; GET confirms persistence including bank list order",
+    "GET /api/files/stats returns {total_files, docs_received, pending_docs, converted}; admin==ops; partner scope <= admin scope; math: pending = total - received",
+    "Role access: partner can log call + edit file on assigned lead; 403 on non-assigned; admin/ops can access any",
+    "GET /api/leads?status={NEW,CALL_BACK,...,CONVERTED} filters correctly for all 9 new statuses",
+    "UI CallModal opens with running timer; NOT_QUALIFIED reveals disposition-reason; FILE reveals disposition-docs; validation blocks submit without reason (error toast)",
+    "UI Log Call updates lead status pill in header + adds entry to call-logs-list",
+    "UI FileCard visible when status=FILE; add-bank-btn appends bank-row-N; save-file-btn persists (verified after page reload)",
+    "UI Files page: nav-files link, 4 stat cards, files-table-body renders 1 FILE row (Emmadi Thirupathi), row click navigates to lead detail",
+    "UI Leads page: all 9 status-filter buttons present (status-filter-NEW through status-filter-CONVERTED)"
+  ]
+}

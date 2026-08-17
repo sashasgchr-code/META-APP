@@ -48,9 +48,10 @@ api_router = APIRouter(prefix="/api")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-CRM_STATUSES = ["NEW", "CONTACTED", "CALLED", "CONVERTED", "REJECTED"]
+CRM_STATUSES = ["NEW", "CALL_BACK", "NOT_ANSWERING", "SWITCHED_OFF", "NOT_INTERESTED", "NOT_QUALIFIED", "LEAD", "FILE", "CONVERTED"]
 STAFF_ROLES = ("admin", "ops")
-SHEET_STATUS_MAP = {"CREATED": "NEW", "CALLED": "CALLED", "CONTACTED": "CONTACTED", "CONVERTED": "CONVERTED", "REJECTED": "REJECTED"}
+SHEET_STATUS_MAP = {"CREATED": "NEW", "CONVERTED": "CONVERTED", "FILE": "FILE"}
+DISPOSITIONS = {"NOT_ANSWERING", "SWITCHED_OFF", "NOT_INTERESTED", "NOT_QUALIFIED", "CALL_BACK", "LEAD", "FILE"}
 
 
 # ------------------- Models -------------------
@@ -93,6 +94,18 @@ class BulkAssignInput(BaseModel):
     lead_ids: List[str]
     partner_id: Optional[str] = None
 
+class SettingsInput(BaseModel):
+    commission_per_conversion: int
+
+class CallLogInput(BaseModel):
+    duration_seconds: int = 0
+    disposition: str
+    reason: Optional[str] = ""
+    docs_received: Optional[bool] = None
+
+class FileInput(BaseModel):
+    data: dict
+
 
 # ------------------- Helpers -------------------
 def hash_password(pw: str) -> str:
@@ -106,6 +119,12 @@ def verify_password(pw: str, hashed: str) -> bool:
 
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
+
+async def get_commission_rate() -> int:
+    doc = await db.meta.find_one({"key": "settings"}, {"_id": 0})
+    if doc and doc.get("commission_per_conversion") is not None:
+        return int(doc["commission_per_conversion"])
+    return 1000
 
 async def create_session(user_id: str) -> str:
     token = f"sess_{uuid.uuid4().hex}"
@@ -556,8 +575,11 @@ async def lead_stats(user: dict = Depends(get_current_user)):
     pipeline = [{"$match": match}, {"$group": {"_id": "$city", "count": {"$sum": 1}}},
                 {"$sort": {"count": -1}}, {"$limit": 6}]
     by_city = [{"city": d["_id"] or "Unknown", "count": d["count"]} async for d in db.leads.aggregate(pipeline)]
+    rate = await get_commission_rate()
+    earnings = by_status["CONVERTED"] * rate
     return {"total": total, "by_status": by_status, "unassigned": unassigned,
-            "last_sync": last_sync, "by_city": by_city}
+            "last_sync": last_sync, "by_city": by_city,
+            "commission_rate": rate, "earnings": earnings}
 
 @api_router.get("/leads/{lead_id}")
 async def get_lead(lead_id: str, user: dict = Depends(get_current_user)):
@@ -624,6 +646,63 @@ async def add_note(lead_id: str, inp: NoteInput, user: dict = Depends(get_curren
     return await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
 
 
+@api_router.post("/leads/{lead_id}/calls")
+async def log_call(lead_id: str, inp: CallLogInput, user: dict = Depends(get_current_user)):
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if user.get("role") not in STAFF_ROLES and lead.get("assigned_partner_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if inp.disposition not in DISPOSITIONS:
+        raise HTTPException(status_code=400, detail="Invalid disposition")
+    if inp.disposition == "NOT_QUALIFIED" and not (inp.reason or "").strip():
+        raise HTTPException(status_code=400, detail="Reason is required for Not Qualified")
+    dur = max(0, inp.duration_seconds)
+    call = {"call_id": f"call_{uuid.uuid4().hex[:10]}", "user_id": user["user_id"], "user_name": user["name"],
+            "at": now_iso(), "duration_seconds": dur, "disposition": inp.disposition,
+            "reason": inp.reason or "", "docs_received": inp.docs_received}
+    detail = f"{user['name']} logged a call ({dur // 60}m {dur % 60}s) — {inp.disposition.replace('_', ' ').title()}"
+    set_fields = {"disposition": inp.disposition, "updated_at": now_iso()}
+    if lead.get("status") != "CONVERTED":
+        set_fields["status"] = inp.disposition
+    if inp.docs_received is not None:
+        set_fields["docs_received"] = inp.docs_received
+    if inp.disposition == "FILE" and not lead.get("file"):
+        set_fields["file"] = {}
+    await db.leads.update_one({"lead_id": lead_id}, {"$set": set_fields,
+        "$push": {"call_logs": call, "activities": {"type": "call", "detail": detail, "at": now_iso()}}})
+    updated = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if inp.disposition == "FILE":
+        asyncio.create_task(notify_staff_converted(updated, user["name"]))
+    return updated
+
+
+@api_router.patch("/leads/{lead_id}/file")
+async def save_file(lead_id: str, inp: FileInput, user: dict = Depends(get_current_user)):
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if user.get("role") not in STAFF_ROLES and lead.get("assigned_partner_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    activity = {"type": "file", "detail": f"{user['name']} updated file details", "at": now_iso()}
+    await db.leads.update_one({"lead_id": lead_id}, {"$set": {"file": inp.data, "updated_at": now_iso()},
+                              "$push": {"activities": activity}})
+    return await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+
+
+@api_router.get("/files/stats")
+async def files_stats(user: dict = Depends(get_current_user)):
+    match = {}
+    if user.get("role") not in STAFF_ROLES:
+        match["assigned_partner_id"] = user["user_id"]
+    file_match = {**match, "status": {"$in": ["FILE", "CONVERTED"]}}
+    total_files = await db.leads.count_documents(file_match)
+    docs_received = await db.leads.count_documents({**file_match, "docs_received": True})
+    converted = await db.leads.count_documents({**match, "status": "CONVERTED"})
+    return {"total_files": total_files, "docs_received": docs_received,
+            "pending_docs": total_files - docs_received, "converted": converted}
+
+
 # ------------------- Partners routes -------------------
 @api_router.post("/leads/bulk-assign")
 async def bulk_assign(inp: BulkAssignInput, user: dict = Depends(require_admin)):
@@ -654,10 +733,26 @@ async def bulk_assign(inp: BulkAssignInput, user: dict = Depends(require_admin))
 async def list_partners(user: dict = Depends(require_admin)):
     partners = await db.users.find({"role": "growth_partner", "approved": True},
                                    {"_id": 0, "password_hash": 0, "visible_password": 0}).to_list(1000)
+    rate = await get_commission_rate()
     for p in partners:
         p["assigned_leads"] = await db.leads.count_documents({"assigned_partner_id": p["user_id"]})
         p["converted_leads"] = await db.leads.count_documents({"assigned_partner_id": p["user_id"], "status": "CONVERTED"})
+        p["earnings"] = p["converted_leads"] * rate
     return partners
+
+
+@api_router.get("/settings")
+async def get_settings(user: dict = Depends(get_current_user)):
+    return {"commission_per_conversion": await get_commission_rate()}
+
+
+@api_router.patch("/settings")
+async def update_settings(inp: SettingsInput, admin: dict = Depends(require_admin)):
+    if inp.commission_per_conversion < 0:
+        raise HTTPException(status_code=400, detail="Commission must be >= 0")
+    await db.meta.update_one({"key": "settings"},
+        {"$set": {"key": "settings", "commission_per_conversion": inp.commission_per_conversion}}, upsert=True)
+    return {"commission_per_conversion": inp.commission_per_conversion}
 
 
 # ------------------- User management (admin) -------------------

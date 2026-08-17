@@ -10,6 +10,7 @@ import Dashboard from "@/pages/Dashboard";
 import Leads from "@/pages/Leads";
 import LeadDetail from "@/pages/LeadDetail";
 import Partners from "@/pages/Partners";
+import Files from "@/pages/Files";
 import UserManagement from "@/pages/UserManagement";
 
 const Protected = ({ children }) => {
@@ -38,6 +39,7 @@ function AppRouter() {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/leads" element={<Leads />} />
         <Route path="/leads/:leadId" element={<LeadDetail />} />
+        <Route path="/files" element={<Files />} />
         <Route path="/partners" element={<Partners />} />
         <Route path="/users" element={<UserManagement />} />
       </Route>
