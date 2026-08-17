@@ -48,9 +48,9 @@ api_router = APIRouter(prefix="/api")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-CRM_STATUSES = ["NEW", "CALL_BACK", "NOT_ANSWERING", "SWITCHED_OFF", "NOT_INTERESTED", "NOT_QUALIFIED", "LEAD", "FILE", "CONVERTED"]
+CRM_STATUSES = ["NEW", "CALL_BACK", "NOT_ANSWERING", "SWITCHED_OFF", "NOT_INTERESTED", "NOT_QUALIFIED", "LEAD", "FILE"]
 STAFF_ROLES = ("admin", "ops")
-SHEET_STATUS_MAP = {"CREATED": "NEW", "CONVERTED": "CONVERTED", "FILE": "FILE"}
+SHEET_STATUS_MAP = {"CREATED": "NEW", "FILE": "FILE"}
 DISPOSITIONS = {"NOT_ANSWERING", "SWITCHED_OFF", "NOT_INTERESTED", "NOT_QUALIFIED", "CALL_BACK", "LEAD", "FILE"}
 
 
@@ -318,10 +318,10 @@ async def notify_staff_converted(lead: dict, actor_name: str):
     if not EMAIL_KEY:
         return
     lead_url = f"{APP_BASE_URL}/leads/{lead['lead_id']}"
-    subject = f"Lead CONVERTED: {lead.get('full_name') or 'Lead'}"
+    subject = f"New File: {lead.get('full_name') or 'Lead'}"
     html = (f'<table role="presentation" width="100%"><tr><td style="padding:24px;font-family:Arial,sans-serif;color:#0f172a">'
-            f'<h2 style="color:#166534;margin:0 0 12px">Lead Converted</h2>'
-            f'<p>{escape(actor_name)} marked a lead as <strong>CONVERTED</strong> in {escape(EMAIL_FROM_NAME)}.</p>'
+            f'<h2 style="color:#7c3aed;margin:0 0 12px">New Loan File</h2>'
+            f'<p>{escape(actor_name)} moved a lead to the <strong>FILE</strong> stage in {escape(EMAIL_FROM_NAME)}.</p>'
             f'<table role="presentation" style="margin:16px 0;font-size:14px">'
             f'<tr><td style="padding:4px 12px 4px 0;color:#64748b">Name</td><td><strong>{escape(lead.get("full_name") or "-")}</strong></td></tr>'
             f'<tr><td style="padding:4px 12px 4px 0;color:#64748b">Phone</td><td>{escape(lead.get("phone") or "-")}</td></tr>'
@@ -576,7 +576,7 @@ async def lead_stats(user: dict = Depends(get_current_user)):
                 {"$sort": {"count": -1}}, {"$limit": 6}]
     by_city = [{"city": d["_id"] or "Unknown", "count": d["count"]} async for d in db.leads.aggregate(pipeline)]
     rate = await get_commission_rate()
-    earnings = by_status["CONVERTED"] * rate
+    earnings = by_status["FILE"] * rate
     return {"total": total, "by_status": by_status, "unassigned": unassigned,
             "last_sync": last_sync, "by_city": by_city,
             "commission_rate": rate, "earnings": earnings}
@@ -603,7 +603,7 @@ async def update_status(lead_id: str, inp: LeadUpdate, user: dict = Depends(get_
     await db.leads.update_one({"lead_id": lead_id}, {"$set": {"status": inp.status, "updated_at": now_iso()},
                               "$push": {"activities": activity}})
     updated = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
-    if inp.status == "CONVERTED" and lead.get("status") != "CONVERTED":
+    if inp.status == "FILE" and lead.get("status") != "FILE":
         asyncio.create_task(notify_staff_converted(updated, user["name"]))
     return updated
 
@@ -663,7 +663,7 @@ async def log_call(lead_id: str, inp: CallLogInput, user: dict = Depends(get_cur
             "reason": inp.reason or "", "docs_received": inp.docs_received}
     detail = f"{user['name']} logged a call ({dur // 60}m {dur % 60}s) — {inp.disposition.replace('_', ' ').title()}"
     set_fields = {"disposition": inp.disposition, "updated_at": now_iso()}
-    if lead.get("status") != "CONVERTED":
+    if lead.get("status") != "FILE":
         set_fields["status"] = inp.disposition
     if inp.docs_received is not None:
         set_fields["docs_received"] = inp.docs_received
@@ -695,12 +695,11 @@ async def files_stats(user: dict = Depends(get_current_user)):
     match = {}
     if user.get("role") not in STAFF_ROLES:
         match["assigned_partner_id"] = user["user_id"]
-    file_match = {**match, "status": {"$in": ["FILE", "CONVERTED"]}}
+    file_match = {**match, "status": "FILE"}
     total_files = await db.leads.count_documents(file_match)
     docs_received = await db.leads.count_documents({**file_match, "docs_received": True})
-    converted = await db.leads.count_documents({**match, "status": "CONVERTED"})
     return {"total_files": total_files, "docs_received": docs_received,
-            "pending_docs": total_files - docs_received, "converted": converted}
+            "pending_docs": total_files - docs_received}
 
 
 # ------------------- Partners routes -------------------
@@ -736,7 +735,7 @@ async def list_partners(user: dict = Depends(require_admin)):
     rate = await get_commission_rate()
     for p in partners:
         p["assigned_leads"] = await db.leads.count_documents({"assigned_partner_id": p["user_id"]})
-        p["converted_leads"] = await db.leads.count_documents({"assigned_partner_id": p["user_id"], "status": "CONVERTED"})
+        p["converted_leads"] = await db.leads.count_documents({"assigned_partner_id": p["user_id"], "status": "FILE"})
         p["earnings"] = p["converted_leads"] * rate
     return partners
 

@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { ArrowLeft, Phone, PhoneCall, Mail, MapPin, Briefcase, Wallet, Megaphone, Send, MessageSquare, Activity, UserCog, FolderOpen, Plus, Trash2, Save, Clock } from "lucide-react";
 import { StatusPill, STATUS_LABEL } from "@/pages/Leads";
 
-const STATUSES = ["NEW", "CALL_BACK", "NOT_ANSWERING", "SWITCHED_OFF", "NOT_INTERESTED", "NOT_QUALIFIED", "LEAD", "FILE", "CONVERTED"];
+const STATUSES = ["NEW", "CALL_BACK", "NOT_ANSWERING", "SWITCHED_OFF", "NOT_INTERESTED", "NOT_QUALIFIED", "LEAD", "FILE"];
 const DISPOSITIONS = [
   { v: "NOT_ANSWERING", l: "Not Answering" }, { v: "SWITCHED_OFF", l: "Switched Off" },
   { v: "NOT_INTERESTED", l: "Not Interested" }, { v: "NOT_QUALIFIED", l: "Not Qualified" },
@@ -274,7 +274,7 @@ export default function LeadDetail() {
         </div>
 
         <div className="lg:col-span-2 space-y-6">
-          {["FILE", "CONVERTED"].includes(lead.status) && <FileCard key={lead.updated_at} lead={lead} onSave={saveFile} />}
+          {lead.status === "FILE" && <FileCard key={lead.updated_at} lead={lead} onSave={saveFile} />}
 
           <div className="bg-white border border-slate-200 rounded-md p-5 shadow-sm">
             <h3 className="text-sm font-semibold text-brand-dark mb-3 flex items-center gap-2"><MessageSquare size={16} /> Notes</h3>

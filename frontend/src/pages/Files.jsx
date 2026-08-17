@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { StatusPill } from "@/pages/Leads";
-import { FolderOpen, FileCheck2, FileClock, CheckCircle2, MapPin } from "lucide-react";
+import { FolderOpen, FileCheck2, FileClock, MapPin } from "lucide-react";
 
 const StatCard = ({ label, value, icon: Icon, accent }) => (
   <div className="bg-white border border-slate-200 rounded-md p-5 shadow-sm">
@@ -35,11 +35,10 @@ export default function Files() {
       </header>
 
       <div className="p-6 lg:p-8">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
           <StatCard label="Total Files" value={stats?.total_files ?? "—"} icon={FolderOpen} accent="bg-violet-50 text-violet-600" />
           <StatCard label="Docs Received" value={stats?.docs_received ?? "—"} icon={FileCheck2} accent="bg-emerald-50 text-emerald-600" />
           <StatCard label="Docs Pending" value={stats?.pending_docs ?? "—"} icon={FileClock} accent="bg-amber-50 text-amber-600" />
-          <StatCard label="Converted" value={stats?.converted ?? "—"} icon={CheckCircle2} accent="bg-emerald-50 text-emerald-700" />
         </div>
 
         <div className="bg-white border border-slate-200 rounded-md shadow-sm overflow-hidden">

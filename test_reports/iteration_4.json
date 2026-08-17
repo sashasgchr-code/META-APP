@@ -1,0 +1,34 @@
+{
+  "summary": "Verified CONVERTED status has been fully removed from the BankEzee CRM and replaced by FILE. Ran 9 targeted backend tests (all pass) and UI checks across Dashboard, Leads, Files and Lead Detail pages. No CONVERTED remains anywhere in code (server.py, frontend/src) or in live API/UI surfaces. Only lingering CONVERTED strings appear inside historical activity-log entries in Mongo from prior test runs — stale data, explicitly acknowledged as non-bug in the request.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_converted_removal.py",
+    "/app/test_reports/pytest/converted_removal.xml"
+  ],
+  "verifications_performed": [
+    "GET /api/leads/stats by_status keys == {NEW, CALL_BACK, NOT_ANSWERING, SWITCHED_OFF, NOT_INTERESTED, NOT_QUALIFIED, LEAD, FILE}; no CONVERTED key (verified for admin, ops, partner)",
+    "earnings == by_status['FILE'] * commission_rate",
+    "GET /api/files/stats returns exactly {total_files, docs_received, pending_docs}; no 'converted' key; pending_docs = total - received",
+    "PATCH /api/leads/{id}/status with status=CONVERTED returns 400; status=FILE returns 200",
+    "GET /api/leads?status=FILE filter works; all returned items have status=FILE",
+    "GET /api/partners returns integer converted_leads (backed by count of status=FILE)",
+    "Dashboard UI: metric card labelled 'Files' (not Converted) shows FILE count=1; In Progress card = CALL_BACK + LEAD = 1; Pipeline Breakdown legend/pie has 8 entries (NEW..FILE), no CONVERTED",
+    "Leads page: status filter row shows ALL + 8 statuses (NEW, CALL BACK, NOT ANSWERING, SWITCHED OFF, NOT INTERESTED, NOT QUALIFIED, LEAD, FILE); no CONVERTED button; FILE filter returns 1 row",
+    "Files page (/files): 3 stat cards Total Files=1, Docs Received=1, Docs Pending=0; no 'Converted' card; header 'Files & Conversions'",
+    "Lead Detail (FILE lead): 8 set-status buttons ending at FILE, no CONVERTED button; Loan File Details card visible when status=FILE"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Stale activity log entries in Mongo contain 'Status changed from CONVERTED to CONVERTED by Admin' strings from prior test runs; consider a one-time DB cleanup script to purge/normalize these if surfacing them is undesirable (cosmetic, not functional).",
+    "server.py is now 861 lines and past the 700-line threshold; consider splitting routes into modules (leads, files, partners, auth) for maintainability."
+  ],
+  "updated_files": ["/app/backend/tests/test_converted_removal.py"],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% (all CONVERTED surfaces verified removed)"},
+  "test_credentials": "Admin sasha.sgchr@gmail.com/Admin@123456; Ops rama.saffronglobal@gmail.com/Ops@123456; Partner priya@example.com/Priya@123456",
+  "seed_data_creation": "None. Used existing FILE lead (lead_55772c498293 - Emmadi Thirupathi).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Old /app/backend/tests/backend_test.py and test_calls_files.py contain references to CONVERTED as a valid status — those specific assertions will now legitimately fail post-removal. Prefer /app/backend/tests/test_converted_removal.py for regression on this fix. The FILE lead used for detail-page UI verification is lead_55772c498293.",
+  "rca of the issue": "N/A — this was a targeted BUG FIX verification, not a defect investigation. Confirmed the removal is complete across backend routes (CRM_STATUSES, files_stats shape, partner converted_leads count, log_call FILE handling, update_status FILE-notify) and frontend (STATUSES arrays in Leads.jsx/LeadDetail.jsx, Dashboard 'Files' card and legend, Files.jsx stat cards)."
+}

@@ -7,7 +7,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pi
 
 const STATUS_COLORS = {
   NEW: "#64748b", CALL_BACK: "#3b82f6", NOT_ANSWERING: "#f59e0b", SWITCHED_OFF: "#fb923c",
-  NOT_INTERESTED: "#94a3b8", NOT_QUALIFIED: "#dc2626", LEAD: "#22c55e", FILE: "#7c3aed", CONVERTED: "#16a34a",
+  NOT_INTERESTED: "#94a3b8", NOT_QUALIFIED: "#dc2626", LEAD: "#22c55e", FILE: "#7c3aed",
 };
 
 const MetricCard = ({ label, value, icon: Icon, accent, delay }) => (
@@ -69,8 +69,8 @@ export default function Dashboard() {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           <MetricCard label="Total Leads" value={stats.total} icon={Users2} accent="bg-blue-50 text-brand" delay={0} />
-          <MetricCard label="Converted" value={stats.by_status.CONVERTED} icon={TrendingUp} accent="bg-emerald-50 text-emerald-600" delay={60} />
-          <MetricCard label="In Progress" value={stats.by_status.CALL_BACK + stats.by_status.LEAD + stats.by_status.FILE} icon={UserCheck} accent="bg-amber-50 text-amber-600" delay={120} />
+          <MetricCard label="Files" value={stats.by_status.FILE} icon={TrendingUp} accent="bg-violet-50 text-violet-600" delay={60} />
+          <MetricCard label="In Progress" value={stats.by_status.CALL_BACK + stats.by_status.LEAD} icon={UserCheck} accent="bg-amber-50 text-amber-600" delay={120} />
           {user?.role === "admin" && <MetricCard label="Unassigned" value={stats.unassigned} icon={Users2} accent="bg-slate-100 text-slate-600" delay={180} />}
         </div>
 

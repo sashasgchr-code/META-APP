@@ -14,10 +14,9 @@ export const STATUS_STYLES = {
   NOT_QUALIFIED: "bg-red-50 text-red-700 border-red-200",
   LEAD: "bg-emerald-50 text-emerald-700 border-emerald-200",
   FILE: "bg-violet-50 text-violet-700 border-violet-200",
-  CONVERTED: "bg-emerald-100 text-emerald-800 border-emerald-300",
 };
 export const STATUS_LABEL = (s) => (s || "").replace(/_/g, " ");
-const STATUSES = ["ALL", "NEW", "CALL_BACK", "NOT_ANSWERING", "SWITCHED_OFF", "NOT_INTERESTED", "NOT_QUALIFIED", "LEAD", "FILE", "CONVERTED"];
+const STATUSES = ["ALL", "NEW", "CALL_BACK", "NOT_ANSWERING", "SWITCHED_OFF", "NOT_INTERESTED", "NOT_QUALIFIED", "LEAD", "FILE"];
 
 export const StatusPill = ({ status }) => (
   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${STATUS_STYLES[status] || STATUS_STYLES.NEW}`}>{STATUS_LABEL(status)}</span>
