@@ -10,6 +10,7 @@ import Dashboard from "@/pages/Dashboard";
 import Leads from "@/pages/Leads";
 import LeadDetail from "@/pages/LeadDetail";
 import Partners from "@/pages/Partners";
+import UserManagement from "@/pages/UserManagement";
 
 const Protected = ({ children }) => {
   const { user, loading } = useAuth();
@@ -38,6 +39,7 @@ function AppRouter() {
         <Route path="/leads" element={<Leads />} />
         <Route path="/leads/:leadId" element={<LeadDetail />} />
         <Route path="/partners" element={<Partners />} />
+        <Route path="/users" element={<UserManagement />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

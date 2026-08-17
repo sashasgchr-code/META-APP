@@ -17,8 +17,8 @@ export default function Register() {
     setBusy(true);
     try {
       await register(form);
-      toast.success("Account created. Welcome to BankEzee!");
-      navigate("/dashboard");
+      toast.success("Registration submitted! An admin will review and approve your account shortly.");
+      navigate("/login");
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Registration failed");
     } finally {

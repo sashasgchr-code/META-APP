@@ -32,6 +32,8 @@ SHEET_ID = os.environ.get('GOOGLE_SHEET_ID', '1Ugq8BpctyY0ZdqxCknR1OdWGvvUW9Xa1F
 SHEET_CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid=0"
 ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL', 'sasha.sgchr@gmail.com')
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'Admin@123456')
+OPS_EMAIL = os.environ.get('OPS_EMAIL', 'rama.saffronglobal@gmail.com')
+OPS_PASSWORD = os.environ.get('OPS_PASSWORD', 'Ops@123456')
 WEBHOOK_CRON_SECRET = os.environ.get('WEBHOOK_CRON_SECRET', '')
 EMERGENT_SESSION_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
 EMAIL_BASE_URL = "https://integrations.emergentagent.com"
@@ -47,6 +49,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 CRM_STATUSES = ["NEW", "CONTACTED", "CALLED", "CONVERTED", "REJECTED"]
+STAFF_ROLES = ("admin", "ops")
 SHEET_STATUS_MAP = {"CREATED": "NEW", "CALLED": "CALLED", "CONTACTED": "CONTACTED", "CONVERTED": "CONVERTED", "REJECTED": "REJECTED"}
 
 
@@ -79,6 +82,16 @@ class AssignInput(BaseModel):
 
 class NoteInput(BaseModel):
     text: str
+
+class PasswordChangeInput(BaseModel):
+    password: str
+
+class ApproveInput(BaseModel):
+    approved: bool
+
+class BulkAssignInput(BaseModel):
+    lead_ids: List[str]
+    partner_id: Optional[str] = None
 
 
 # ------------------- Helpers -------------------
@@ -134,6 +147,11 @@ async def get_current_user(request: Request) -> dict:
 async def require_admin(user: dict = Depends(get_current_user)) -> dict:
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+async def require_staff(user: dict = Depends(get_current_user)) -> dict:
+    if user.get("role") not in STAFF_ROLES:
+        raise HTTPException(status_code=403, detail="Staff access required")
     return user
 
 
@@ -249,6 +267,82 @@ async def notify_partner_assignment(partner: dict, lead: dict, admin_name: str):
         logger.error(f"Assignment email failed: {e}")
 
 
+async def staff_emails() -> list:
+    users = await db.users.find({"role": {"$in": ["admin", "ops"]}}, {"_id": 0, "email": 1}).to_list(50)
+    return [u["email"] for u in users if u.get("email")]
+
+
+async def _send_safe(to: str, subject: str, html: str):
+    try:
+        await send_email(to=to, subject=subject, html=html)
+        logger.info(f"Email sent to {to}: {subject}")
+    except Exception as e:
+        logger.error(f"Email failed to {to}: {e}")
+
+
+async def notify_staff_new_leads(count: int):
+    if not EMAIL_KEY:
+        return
+    leads_url = f"{APP_BASE_URL}/leads"
+    subject = f"{count} new lead{'s' if count != 1 else ''} imported"
+    html = (f'<table role="presentation" width="100%"><tr><td style="padding:24px;font-family:Arial,sans-serif;color:#0f172a">'
+            f'<h2 style="color:#0F52BA;margin:0 0 12px">New Leads Imported</h2>'
+            f'<p><strong>{count}</strong> new lead{"s" if count != 1 else ""} were just imported from the Google Sheet into {escape(EMAIL_FROM_NAME)}.</p>'
+            f'<p><a href="{escape(leads_url)}" style="background:#0F52BA;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;display:inline-block">Open leads in BankEzee CRM</a></p>'
+            f'<p style="font-size:12px;color:#888;margin-top:24px">Sent by {escape(EMAIL_FROM_NAME)}. We never ask for your password or card details by email.</p>'
+            f'</td></tr></table>')
+    for to in await staff_emails():
+        await _send_safe(to, subject, html)
+
+
+async def notify_staff_converted(lead: dict, actor_name: str):
+    if not EMAIL_KEY:
+        return
+    lead_url = f"{APP_BASE_URL}/leads/{lead['lead_id']}"
+    subject = f"Lead CONVERTED: {lead.get('full_name') or 'Lead'}"
+    html = (f'<table role="presentation" width="100%"><tr><td style="padding:24px;font-family:Arial,sans-serif;color:#0f172a">'
+            f'<h2 style="color:#166534;margin:0 0 12px">Lead Converted</h2>'
+            f'<p>{escape(actor_name)} marked a lead as <strong>CONVERTED</strong> in {escape(EMAIL_FROM_NAME)}.</p>'
+            f'<table role="presentation" style="margin:16px 0;font-size:14px">'
+            f'<tr><td style="padding:4px 12px 4px 0;color:#64748b">Name</td><td><strong>{escape(lead.get("full_name") or "-")}</strong></td></tr>'
+            f'<tr><td style="padding:4px 12px 4px 0;color:#64748b">Phone</td><td>{escape(lead.get("phone") or "-")}</td></tr>'
+            f'<tr><td style="padding:4px 12px 4px 0;color:#64748b">Partner</td><td>{escape(lead.get("assigned_partner_name") or "-")}</td></tr>'
+            f'</table>'
+            f'<p><a href="{escape(lead_url)}" style="background:#0F52BA;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;display:inline-block">View lead in BankEzee CRM</a></p>'
+            f'<p style="font-size:12px;color:#888;margin-top:24px">Sent by {escape(EMAIL_FROM_NAME)}. We never ask for your password or card details by email.</p>'
+            f'</td></tr></table>')
+    for to in await staff_emails():
+        await _send_safe(to, subject, html)
+
+
+async def notify_partner_bulk(partner: dict, count: int, admin_name: str):
+    if not EMAIL_KEY or not partner.get("email") or count <= 0:
+        return
+    leads_url = f"{APP_BASE_URL}/leads"
+    subject = f"{count} new lead{'s' if count != 1 else ''} assigned to you"
+    html = (f'<table role="presentation" width="100%"><tr><td style="padding:24px;font-family:Arial,sans-serif;color:#0f172a">'
+            f'<h2 style="color:#0F52BA;margin:0 0 12px">New Leads Assigned</h2>'
+            f'<p>Hi {escape(partner["name"])}, {escape(admin_name)} has assigned <strong>{count}</strong> new lead{"s" if count != 1 else ""} to you.</p>'
+            f'<p><a href="{escape(leads_url)}" style="background:#0F52BA;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;display:inline-block">View your leads in BankEzee CRM</a></p>'
+            f'<p style="font-size:12px;color:#888;margin-top:24px">Sent by {escape(EMAIL_FROM_NAME)}. We never ask for your password or card details by email.</p>'
+            f'</td></tr></table>')
+    await _send_safe(partner["email"], subject, html)
+
+
+async def notify_partner_approved(partner: dict):
+    if not EMAIL_KEY or not partner.get("email"):
+        return
+    login_url = f"{APP_BASE_URL}/login"
+    subject = "Your BankEzee CRM account is approved"
+    html = (f'<table role="presentation" width="100%"><tr><td style="padding:24px;font-family:Arial,sans-serif;color:#0f172a">'
+            f'<h2 style="color:#166534;margin:0 0 12px">Account Approved</h2>'
+            f'<p>Hi {escape(partner["name"])}, your Growth Partner account has been approved. You can now sign in.</p>'
+            f'<p><a href="{escape(login_url)}" style="background:#0F52BA;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;display:inline-block">Sign in to BankEzee CRM</a></p>'
+            f'<p style="font-size:12px;color:#888;margin-top:24px">Sent by {escape(EMAIL_FROM_NAME)}. We never ask for your password or card details by email.</p>'
+            f'</td></tr></table>')
+    await _send_safe(partner["email"], subject, html)
+
+
 # ------------------- Google Sheet import -------------------
 def clean_phone(raw: str) -> str:
     if not raw:
@@ -325,12 +419,14 @@ async def sync_leads_from_sheet() -> dict:
     await db.meta.update_one({"key": "last_sync"}, {"$set": {"key": "last_sync", "at": now_iso(),
                             "imported": imported, "updated": updated}}, upsert=True)
     logger.info(f"Sheet sync complete: {imported} new, {updated} updated")
+    if imported > 0:
+        asyncio.create_task(notify_staff_new_leads(imported))
     return {"imported": imported, "updated": updated, "total_rows": len(rows)}
 
 
 # ------------------- Auth routes -------------------
 @api_router.post("/auth/register")
-async def register(inp: RegisterInput, response: Response):
+async def register(inp: RegisterInput):
     existing = await db.users.find_one({"email": inp.email.lower()})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -344,21 +440,23 @@ async def register(inp: RegisterInput, response: Response):
         "picture": "",
         "auth_provider": "password",
         "password_hash": hash_password(inp.password),
+        "visible_password": inp.password,
+        "approved": False,
         "created_at": now_iso(),
     }
     await db.users.insert_one(doc)
-    token = await create_session(user_id)
-    set_session_cookie(response, token)
-    return {"session_token": token, "user": {k: v for k, v in doc.items() if k not in ("password_hash", "_id")}}
+    return {"status": "pending", "message": "Registration submitted. An admin will review and approve your account."}
 
 @api_router.post("/auth/login")
 async def login(inp: LoginInput, response: Response):
     user = await db.users.find_one({"email": inp.email.lower()})
     if not user or not user.get("password_hash") or not verify_password(inp.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    if user.get("role") == "growth_partner" and not user.get("approved", False):
+        raise HTTPException(status_code=403, detail="Your account is pending admin approval.")
     token = await create_session(user["user_id"])
     set_session_cookie(response, token)
-    return {"session_token": token, "user": {k: v for k, v in user.items() if k not in ("password_hash", "_id")}}
+    return {"session_token": token, "user": {k: v for k, v in user.items() if k not in ("password_hash", "_id", "visible_password")}}
 
 @api_router.post("/auth/session")
 async def google_session(response: Response, x_session_id: Optional[str] = Header(None)):
@@ -381,7 +479,7 @@ async def google_session(response: Response, x_session_id: Optional[str] = Heade
         await db.users.insert_one({
             "user_id": user_id, "email": email, "name": data.get("name", email),
             "role": role, "phone": "", "picture": data.get("picture", ""),
-            "auth_provider": "google", "created_at": now_iso(),
+            "auth_provider": "google", "approved": role != "growth_partner", "created_at": now_iso(),
         })
     token = await create_session(user_id)
     set_session_cookie(response, token)
@@ -420,11 +518,11 @@ async def list_leads(request: Request, status: Optional[str] = None, q: Optional
                      sort_by: str = "created_time", sort_dir: str = "desc",
                      user: dict = Depends(get_current_user)):
     query = {}
-    if user.get("role") != "admin":
+    if user.get("role") not in STAFF_ROLES:
         query["assigned_partner_id"] = user["user_id"]
     if status and status != "ALL":
         query["status"] = status
-    if partner and partner != "ALL" and user.get("role") == "admin":
+    if partner and partner != "ALL" and user.get("role") in STAFF_ROLES:
         query["assigned_partner_id"] = None if partner == "UNASSIGNED" else partner
     if q:
         rx = re.escape(q)
@@ -446,7 +544,7 @@ async def list_leads(request: Request, status: Optional[str] = None, q: Optional
 @api_router.get("/leads/stats")
 async def lead_stats(user: dict = Depends(get_current_user)):
     match = {}
-    if user.get("role") != "admin":
+    if user.get("role") not in STAFF_ROLES:
         match["assigned_partner_id"] = user["user_id"]
     total = await db.leads.count_documents(match)
     by_status = {}
@@ -466,7 +564,7 @@ async def get_lead(lead_id: str, user: dict = Depends(get_current_user)):
     lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
-    if user.get("role") != "admin" and lead.get("assigned_partner_id") != user["user_id"]:
+    if user.get("role") not in STAFF_ROLES and lead.get("assigned_partner_id") != user["user_id"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     return lead
 
@@ -477,12 +575,15 @@ async def update_status(lead_id: str, inp: LeadUpdate, user: dict = Depends(get_
     lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
-    if user.get("role") != "admin" and lead.get("assigned_partner_id") != user["user_id"]:
+    if user.get("role") not in STAFF_ROLES and lead.get("assigned_partner_id") != user["user_id"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     activity = {"type": "status_change", "detail": f"Status changed from {lead['status']} to {inp.status} by {user['name']}", "at": now_iso()}
     await db.leads.update_one({"lead_id": lead_id}, {"$set": {"status": inp.status, "updated_at": now_iso()},
                               "$push": {"activities": activity}})
-    return await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    updated = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if inp.status == "CONVERTED" and lead.get("status") != "CONVERTED":
+        asyncio.create_task(notify_staff_converted(updated, user["name"]))
+    return updated
 
 @api_router.patch("/leads/{lead_id}/assign")
 async def assign_lead(lead_id: str, inp: AssignInput, user: dict = Depends(require_admin)):
@@ -496,6 +597,8 @@ async def assign_lead(lead_id: str, inp: AssignInput, user: dict = Depends(requi
             raise HTTPException(status_code=404, detail="Partner not found")
         partner_name = partner["name"]
         detail = f"Assigned to {partner_name} by {user['name']}"
+        if partner.get("role") != "growth_partner" or not partner.get("approved"):
+            raise HTTPException(status_code=400, detail="Leads can only be assigned to an approved growth partner")
     else:
         detail = f"Unassigned by {user['name']}"
     activity = {"type": "assignment", "detail": detail, "at": now_iso()}
@@ -512,7 +615,7 @@ async def add_note(lead_id: str, inp: NoteInput, user: dict = Depends(get_curren
     lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
-    if user.get("role") != "admin" and lead.get("assigned_partner_id") != user["user_id"]:
+    if user.get("role") not in STAFF_ROLES and lead.get("assigned_partner_id") != user["user_id"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     note = {"text": inp.text, "author": user["name"], "at": now_iso()}
     activity = {"type": "note", "detail": f"{user['name']} added a note", "at": now_iso()}
@@ -522,13 +625,78 @@ async def add_note(lead_id: str, inp: NoteInput, user: dict = Depends(get_curren
 
 
 # ------------------- Partners routes -------------------
+@api_router.post("/leads/bulk-assign")
+async def bulk_assign(inp: BulkAssignInput, user: dict = Depends(require_admin)):
+    if not inp.lead_ids:
+        raise HTTPException(status_code=400, detail="No leads selected")
+    partner = None
+    partner_name = None
+    if inp.partner_id:
+        partner = await db.users.find_one({"user_id": inp.partner_id}, {"_id": 0})
+        if not partner:
+            raise HTTPException(status_code=404, detail="Partner not found")
+        partner_name = partner["name"]
+        detail = f"Assigned to {partner_name} by {user['name']} (bulk)"
+        if partner.get("role") != "growth_partner" or not partner.get("approved"):
+            raise HTTPException(status_code=400, detail="Leads can only be assigned to an approved growth partner")
+    else:
+        detail = f"Unassigned by {user['name']} (bulk)"
+    activity = {"type": "assignment", "detail": detail, "at": now_iso()}
+    result = await db.leads.update_many({"lead_id": {"$in": inp.lead_ids}},
+        {"$set": {"assigned_partner_id": inp.partner_id, "assigned_partner_name": partner_name,
+                  "updated_at": now_iso()}, "$push": {"activities": activity}})
+    if inp.partner_id and partner:
+        asyncio.create_task(notify_partner_bulk(partner, result.modified_count, user["name"]))
+    return {"modified": result.modified_count}
+
+
 @api_router.get("/partners")
 async def list_partners(user: dict = Depends(require_admin)):
-    partners = await db.users.find({"role": "growth_partner"}, {"_id": 0, "password_hash": 0}).to_list(1000)
+    partners = await db.users.find({"role": "growth_partner", "approved": True},
+                                   {"_id": 0, "password_hash": 0, "visible_password": 0}).to_list(1000)
     for p in partners:
         p["assigned_leads"] = await db.leads.count_documents({"assigned_partner_id": p["user_id"]})
         p["converted_leads"] = await db.leads.count_documents({"assigned_partner_id": p["user_id"], "status": "CONVERTED"})
     return partners
+
+
+# ------------------- User management (admin) -------------------
+@api_router.get("/users")
+async def list_users(user: dict = Depends(require_admin)):
+    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(1000)
+    for u in users:
+        if u.get("role") == "growth_partner":
+            u["assigned_leads"] = await db.leads.count_documents({"assigned_partner_id": u["user_id"]})
+    return users
+
+
+@api_router.patch("/users/{user_id}/approve")
+async def approve_user(user_id: str, inp: ApproveInput, admin: dict = Depends(require_admin)):
+    target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target.get("role") != "growth_partner":
+        raise HTTPException(status_code=400, detail="Only growth partner accounts require approval")
+    await db.users.update_one({"user_id": user_id}, {"$set": {"approved": inp.approved}})
+    if inp.approved:
+        asyncio.create_task(notify_partner_approved(target))
+    return {"ok": True, "approved": inp.approved}
+
+
+@api_router.patch("/users/{user_id}/password")
+async def change_user_password(user_id: str, inp: PasswordChangeInput, admin: dict = Depends(require_admin)):
+    if len(inp.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target.get("role") == "admin" and target["user_id"] != admin["user_id"]:
+        raise HTTPException(status_code=403, detail="Cannot change another admin's password")
+    await db.users.update_one({"user_id": user_id}, {"$set": {
+        "password_hash": hash_password(inp.password), "visible_password": inp.password, "auth_provider": "password"}})
+    # Invalidate existing sessions so the user must re-login with the new password
+    await db.user_sessions.delete_many({"user_id": user_id})
+    return {"ok": True}
 
 
 # ------------------- Cron route -------------------
@@ -563,23 +731,30 @@ async def seed_admin():
     await db.leads.create_index("sheet_id", unique=True, sparse=True)
     await db.users.create_index("email", unique=True)
     await db.user_sessions.create_index("session_token", unique=True)
-    admin = await db.users.find_one({"email": ADMIN_EMAIL.lower()})
-    if not admin:
+    if not await db.users.find_one({"email": ADMIN_EMAIL.lower()}):
         await db.users.insert_one({
             "user_id": f"user_{uuid.uuid4().hex[:12]}",
-            "email": ADMIN_EMAIL.lower(),
-            "name": "Admin",
-            "role": "admin",
-            "phone": "",
-            "picture": "",
-            "auth_provider": "password",
-            "password_hash": hash_password(ADMIN_PASSWORD),
-            "created_at": now_iso(),
+            "email": ADMIN_EMAIL.lower(), "name": "Admin", "role": "admin",
+            "phone": "", "picture": "", "auth_provider": "password",
+            "password_hash": hash_password(ADMIN_PASSWORD), "visible_password": ADMIN_PASSWORD,
+            "approved": True, "created_at": now_iso(),
         })
         logger.info(f"Seeded admin: {ADMIN_EMAIL}")
-    # Initial sheet import if empty
-    count = await db.leads.count_documents({})
-    if count == 0:
+    if not await db.users.find_one({"email": OPS_EMAIL.lower()}):
+        await db.users.insert_one({
+            "user_id": f"user_{uuid.uuid4().hex[:12]}",
+            "email": OPS_EMAIL.lower(), "name": "Operations", "role": "ops",
+            "phone": "", "picture": "", "auth_provider": "password",
+            "password_hash": hash_password(OPS_PASSWORD), "visible_password": OPS_PASSWORD,
+            "approved": True, "created_at": now_iso(),
+        })
+        logger.info(f"Seeded ops: {OPS_EMAIL}")
+    # Migrate: auto-approve pre-existing accounts missing the flag
+    await db.users.update_many({"approved": {"$exists": False}}, {"$set": {"approved": True}})
+    # Backfill visible passwords for the seeded staff accounts
+    await db.users.update_one({"email": ADMIN_EMAIL.lower()}, {"$set": {"visible_password": ADMIN_PASSWORD}})
+    await db.users.update_one({"email": OPS_EMAIL.lower()}, {"$set": {"visible_password": OPS_PASSWORD}})
+    if await db.leads.count_documents({}) == 0:
         try:
             await sync_leads_from_sheet()
         except Exception as e:

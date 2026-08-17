@@ -1,0 +1,57 @@
+{
+  "summary": "Iteration 2 e2e testing of new BankEzee CRM features: register-approval flow, User Management (approve/revoke/reveal-password/change-password), bulk-assign, Ops role, CONVERTED notification emails. 21/21 pytest backend cases pass. 9/9 Playwright UI cases pass (initial run had 1 script-only CSS-selector syntax bug, retested and PASS).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py /api/auth/session (Google OAuth): auto-creates non-admin/ops accounts with approved=True. This is inconsistent with the password-register pending-approval flow. If a Google-signed-in user is neither ADMIN_EMAIL nor OPS_EMAIL they are created as growth_partner AND approved without admin review. Consider defaulting Google-provisioned growth_partner accounts to approved=False, or restrict Google sign-in to already-existing users.",
+    "server.py /api/users returns visible_password in plaintext for all admin-callable endpoints. Storing plaintext passwords (visible_password field) alongside bcrypt hashes is by explicit product design (admin reveal), but it removes the primary defensive value of bcrypt if the users collection is exfiltrated. Document this and gate the users collection with strict DB-level access controls; also consider a dedicated /users/{id}/reveal-password endpoint with per-view audit logging rather than shipping plaintext on every list call.",
+    "server.py /api/leads/bulk-assign does not validate that partner_id (when non-null) belongs to role=growth_partner and approved=True. Admin could accidentally assign leads to an ops or admin user_id. Add: partner['role'] == 'growth_partner' and partner.get('approved') check before update_many.",
+    "server.py notify_partner_bulk / notify_partner_assignment: assignment persists even if partner has approved=False. Recommend blocking assignment to unapproved partners (or at least skipping the email for them).",
+    "server.py PATCH /api/users/{user_id}/approve uses require_admin but does not prevent an admin from revoking themselves or another admin/ops (only role='growth_partner' is guarded on the login side). Add: reject if target.role != 'growth_partner'.",
+    "server.py PATCH /api/users/{user_id}/password allows an admin to change ANY user's password including other admins. Consider restricting: cannot change another admin's password, or require re-authentication for cross-admin password changes.",
+    "server.py /api/users/{id}/approve response returns only {ok, approved} — no updated user. UI works via reload() but returning the updated user would remove one network round-trip.",
+    "server.py /api/leads/bulk-assign response returns only {modified} — no updated lead documents or activity entry summary. UI has to reload the whole list.",
+    "server.py 'visible_password' is set on register, on admin password-change, and on Google session upgrade only clears role change but NOT the visible_password when auth_provider flips to 'google'. If a password-auth user later signs in via Google, their old plaintext password remains in DB indefinitely.",
+    "Leads.jsx bulk bar 'Unassign' option is value=\"\" which posts partner_id=null — server treats this correctly, but UI label 'Unassign' plus dropdown default '' can be visually confusing when nothing is selected yet.",
+    "UserManagement.jsx: 'Password' modal input uses type='text' (not masked) — deliberate to help admin, but consider a reveal toggle on the modal too for defense-in-depth if screen-recording.",
+    "AuthContext register() no longer sets a session, but if it previously stored a session_token in localStorage and register is called while already logged in, that stale session persists. Verify register() clears localStorage['session_token'] up-front.",
+    "Nice-to-have: /api/users supports no pagination or search. Fine for small teams, will need it if user count grows.",
+    "Prior iteration_1 comments on /api/leads?partner=... overriding role-scoping and /api/partners not being admin-gated: /api/partners now IS admin-gated (require_admin) — good. The partner-filter overwrite issue on /leads is still present but unreachable from UI for non-staff."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py"
+  ],
+  "success_rate": {"backend": "100% (21/21)", "frontend": "100% (9/9 - all critical UI flows verified)"},
+  "test_credentials": "Admin: sasha.sgchr@gmail.com / Admin@123456 | Ops: rama.saffronglobal@gmail.com / Ops@123456 | Ephemeral partners TEST_partner_* and uitest_* created per run and approved.",
+  "seed_data_creation": "Registered fresh pending partner (uitest_*@example.com) via UI, admin-approved, password-changed to Changed@456, logged in successfully. Bulk-assigned 25 leads on page 1 to first partner in dropdown. Marked 1 lead CONVERTED (email logs confirm delivery to admin+ops). Backend pytest registers TEST_partner_*@example.com per run.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend tests in /app/backend/tests/backend_test.py; run with `pytest backend/tests/backend_test.py -v -o 'addopts='` (pytest.ini enables xdist which breaks session-scoped fixtures). The approved_partner fixture's session token becomes invalid mid-suite because test_admin_change_password_invalidates_session runs first and rotates the password; the _fresh_partner_token(admin_token, uid) helper re-logs-in for later isolation tests. Email side-effects for CONVERTED / bulk-assign / approved are async and only observable in /var/log/supervisor/backend.err.log ('Email sent to ...'). @example.com partner emails return 422 from the Emergent Resend proxy BY DESIGN and are swallowed by _send_safe — do NOT flag as a bug.",
+  "verified_features": [
+    "POST /api/auth/register returns {status:'pending'} with no session; frontend redirects to /login with a toast",
+    "POST /api/auth/login returns 403 'pending admin approval' for unapproved growth_partner",
+    "GET /api/users (admin-only) returns users incl. visible_password; 403 for ops and growth_partner",
+    "PATCH /api/users/{id}/approve toggles approval; approved partner can log in",
+    "PATCH /api/users/{id}/password changes password, invalidates all user_sessions, new password logs in, old password fails",
+    "PATCH /api/users/{id}/password rejects <6 chars with 400",
+    "POST /api/leads/bulk-assign (admin) sets assigned_partner on all lead_ids, returns {modified}; 403 for ops+partner; 400 for empty list",
+    "Ops role: login OK, /api/leads/stats OK, /api/leads shows same 238 total as admin; ops sidebar has no User Management/Partners; ops leads UI has no row checkboxes / select-all / assign-select",
+    "Marking a lead CONVERTED via admin triggers notify_staff_converted -> backend logs 'Email sent to sasha.sgchr@gmail.com' and 'Email sent to rama.saffronglobal@gmail.com'",
+    "UI User Management: reveal-pw toggle shows plaintext password; approve-<uid> flips to revoke-<uid>; change-pw modal saves and closes",
+    "UI Bulk assign: select-all-checkbox activates bulk-action-bar with 25 selected count; bulk-partner-select + bulk-assign-btn persists assignment",
+    "Role isolation on admin endpoints: /users, /partners, /leads/bulk-assign, /leads/{id}/assign all return 403 for non-admin"
+  ],
+  "rca of the issue": "No product bugs found this iteration. Two initial pytest failures (test_bulk_assign_forbidden_partner, test_partners_forbidden_for_partner) were test-ordering artefacts — the approved_partner fixture's session token was invalidated earlier by test_admin_change_password_invalidates_session; fixed in the test file by adding _fresh_partner_token(admin_token, uid) helper that re-logs-in using the current visible_password. One UI script iteration had a CSS selector syntax bug (`a[href=\"/users\"], text=\"User Management\"` is not a valid Playwright selector) — fixed by using get_by_text and retested successfully."
+}

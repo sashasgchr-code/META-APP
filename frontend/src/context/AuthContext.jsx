@@ -37,10 +37,9 @@ export const AuthProvider = ({ children }) => {
   };
 
   const register = async (payload) => {
+    localStorage.removeItem("session_token");
     const { data } = await api.post("/auth/register", payload);
-    localStorage.setItem("session_token", data.session_token);
-    setUser(data.user);
-    return data.user;
+    return data;
   };
 
   const logout = async () => {

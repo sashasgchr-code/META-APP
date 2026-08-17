@@ -56,6 +56,24 @@ export default function Leads() {
   const SortIcon = ({ field }) =>
     sortBy !== field ? <ChevronsUpDown size={12} className="text-slate-300" />
       : (sortDir === "asc" ? <ChevronUp size={12} /> : <ChevronDown size={12} />);
+
+  const [selected, setSelected] = useState(new Set());
+  const [bulkPartner, setBulkPartner] = useState("");
+  useEffect(() => { setSelected(new Set()); }, [page, status, q, partnerFilter, sortBy, sortDir]);
+  const toggleOne = (id) => { const s = new Set(selected); s.has(id) ? s.delete(id) : s.add(id); setSelected(s); };
+  const allOnPage = leads.length > 0 && leads.every((l) => selected.has(l.lead_id));
+  const toggleAll = () => {
+    const s = new Set(selected);
+    allOnPage ? leads.forEach((l) => s.delete(l.lead_id)) : leads.forEach((l) => s.add(l.lead_id));
+    setSelected(s);
+  };
+  const doBulkAssign = async () => {
+    try {
+      const { data } = await api.post("/leads/bulk-assign", { lead_ids: [...selected], partner_id: bulkPartner || null });
+      toast.success(`${data.modified} lead${data.modified === 1 ? "" : "s"} updated`);
+      setSelected(new Set()); setBulkPartner(""); load();
+    } catch (e) { toast.error("Bulk assign failed"); }
+  };
   useEffect(() => {
     if (user?.role === "admin") api.get("/partners").then(({ data }) => setPartners(data)).catch(() => {});
   }, [user]);
@@ -111,11 +129,31 @@ export default function Leads() {
           )}
         </div>
 
+        {user?.role === "admin" && selected.size > 0 && (
+          <div className="flex items-center gap-3 mb-3 bg-brand/5 border border-brand/20 rounded-md px-4 py-2.5" data-testid="bulk-action-bar">
+            <span className="text-sm font-medium text-brand-dark" data-testid="bulk-selected-count">{selected.size} selected</span>
+            <select data-testid="bulk-partner-select" value={bulkPartner} onChange={(e) => setBulkPartner(e.target.value)}
+              className="border border-slate-300 rounded-md px-3 py-1.5 text-sm bg-white outline-none focus:border-brand">
+              <option value="">Unassign</option>
+              {partners.map((p) => <option key={p.user_id} value={p.user_id}>{p.name}</option>)}
+            </select>
+            <button data-testid="bulk-assign-btn" onClick={doBulkAssign}
+              className="bg-brand text-white hover:bg-brand/90 rounded-md px-4 py-1.5 text-sm font-medium transition-colors">Apply</button>
+            <button data-testid="bulk-clear-btn" onClick={() => setSelected(new Set())}
+              className="text-slate-500 text-sm hover:text-slate-700 transition-colors">Clear</button>
+          </div>
+        )}
+
         <div className="bg-white border border-slate-200 rounded-md shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full border-collapse">
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-200">
+                  {user?.role === "admin" && (
+                    <th className="py-3 px-3 w-10">
+                      <input type="checkbox" data-testid="select-all-checkbox" checked={allOnPage} onChange={toggleAll} className="accent-[#0F52BA] cursor-pointer" />
+                    </th>
+                  )}
                   {[
                     { h: "Name", f: "full_name" },
                     { h: "Contact", f: null },
@@ -136,12 +174,17 @@ export default function Leads() {
               </thead>
               <tbody data-testid="leads-table-body">
                 {loading ? (
-                  <tr><td colSpan={6} className="py-16 text-center text-slate-400 text-sm">Loading leads...</td></tr>
+                  <tr><td colSpan={user?.role === "admin" ? 7 : 6} className="py-16 text-center text-slate-400 text-sm">Loading leads...</td></tr>
                 ) : leads.length === 0 ? (
-                  <tr><td colSpan={6} className="py-16 text-center text-slate-400 text-sm">No leads found. Sync with Google Sheets to import data.</td></tr>
+                  <tr><td colSpan={user?.role === "admin" ? 7 : 6} className="py-16 text-center text-slate-400 text-sm">No leads found. Sync with Google Sheets to import data.</td></tr>
                 ) : leads.map((lead) => (
                   <tr key={lead.lead_id} data-testid={`lead-row-${lead.lead_id}`} onClick={() => navigate(`/leads/${lead.lead_id}`)}
                     className="border-b border-slate-100 hover:bg-slate-50/60 transition-colors cursor-pointer">
+                    {user?.role === "admin" && (
+                      <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
+                        <input type="checkbox" data-testid={`row-checkbox-${lead.lead_id}`} checked={selected.has(lead.lead_id)} onChange={() => toggleOne(lead.lead_id)} className="accent-[#0F52BA] cursor-pointer" />
+                      </td>
+                    )}
                     <td className="py-2.5 px-3">
                       <p className="text-sm font-medium text-slate-800">{lead.full_name || "—"}</p>
                       <p className="text-xs text-slate-400">{lead.campaign_name?.slice(0, 28)}</p>
