@@ -7,6 +7,11 @@ import { ArrowLeft, Phone, PhoneCall, Mail, MapPin, Briefcase, Wallet, Megaphone
 import { StatusPill, STATUS_LABEL } from "@/pages/Leads";
 
 const STATUSES = ["NEW", "CALL_BACK", "NOT_ANSWERING", "SWITCHED_OFF", "NOT_INTERESTED", "NOT_QUALIFIED", "LEAD", "FILE"];
+const PROC_STATUSES = ["New", "Contacted", "Documents Collected", "Documents Pending", "Sent for Eligibility",
+  "Sent for Login", "Login Done", "Sent for Approval", "Underwriting", "FI (Field Investigation)",
+  "FI Negative", "FI Reinitiated", "Query/Hold", "Customer Not Interested - Need Help from MIT & Manager",
+  "Customer Not Supporting - Need Help from MIT & Manager", "Approved", "Disbursed", "Not Eligible",
+  "Not Login", "Declined", "Not Disbursed"];
 const DISPOSITIONS = [
   { v: "NOT_ANSWERING", l: "Not Answering" }, { v: "SWITCHED_OFF", l: "Switched Off" },
   { v: "NOT_INTERESTED", l: "Not Interested" }, { v: "NOT_QUALIFIED", l: "Not Qualified" },
@@ -123,10 +128,12 @@ const Section = ({ title, children }) => (
   </div>
 );
 
-function FileCard({ lead, onSave, canEdit }) {
+function FileCard({ lead, onSave, canEdit, canStatus, onUpdateStatus }) {
   const [f, setF] = useState(lead.file || {});
   const [banks, setBanks] = useState(lead.file?.banks || []);
   const [saving, setSaving] = useState(false);
+  const [pstatus, setPstatus] = useState(lead.processing_status || "");
+  const [updatingStatus, setUpdatingStatus] = useState(false);
   const d = !canEdit;
   const set = (k) => (v) => setF({ ...f, [k]: v });
   const setBank = (i, k, v) => {
@@ -254,6 +261,23 @@ function FileCard({ lead, onSave, canEdit }) {
         ))}
         {banks.length === 0 && <p className="text-sm text-slate-400">No banks added yet.</p>}
       </div>
+
+      <div className="mt-5 pt-4 border-t border-slate-200">
+        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">File Processing Status</p>
+        {lead.processing_status && <p className="text-sm text-slate-700 mb-2">Current: <span className="font-medium text-brand-dark">{lead.processing_status}</span></p>}
+        {canStatus ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <select data-testid="processing-status-select" value={pstatus} onChange={(e) => setPstatus(e.target.value)}
+              className="flex-1 min-w-[220px] border border-slate-300 rounded-md px-3 py-2 text-sm bg-white outline-none focus:border-brand">
+              <option value="">Select status...</option>
+              {PROC_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <button data-testid="update-status-btn" disabled={updatingStatus || !pstatus}
+              onClick={async () => { setUpdatingStatus(true); try { await onUpdateStatus(pstatus); } finally { setUpdatingStatus(false); } }}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-md px-4 py-2 text-sm font-medium transition-colors disabled:opacity-60">Update Status</button>
+          </div>
+        ) : <p className="text-sm text-slate-500">{lead.processing_status || "Not set"}</p>}
+      </div>
     </div>
   );
 }
@@ -352,6 +376,7 @@ export default function LeadDetail() {
   const addNote = async () => { if (!note.trim()) return; const { data } = await api.post(`/leads/${leadId}/notes`, { text: note }); setLead(data); setNote(""); toast.success("Note added"); };
   const logCall = async (payload) => { const { data } = await api.post(`/leads/${leadId}/calls`, payload); setLead(data); toast.success("Call logged"); };
   const saveFile = async (fdata) => { const { data } = await api.patch(`/leads/${leadId}/file`, { data: fdata }); setLead(data); toast.success("File details saved"); };
+  const updateProcessingStatus = async (status) => { const { data } = await api.patch(`/leads/${leadId}/processing-status`, { status }); setLead(data); toast.success("Processing status updated"); };
 
   if (!lead) return <div className="p-8"><div className="h-8 w-8 rounded-full border-2 border-brand border-t-transparent animate-spin" /></div>;
   const timeline = [...(lead.activities || [])].reverse();
@@ -439,7 +464,7 @@ export default function LeadDetail() {
         </div>
 
         <div className="lg:col-span-2 space-y-6">
-          {lead.status === "FILE" && <FileCard key={lead.updated_at} lead={lead} onSave={saveFile} canEdit={user?.role === "admin" || user?.role === "ops"} />}
+          {lead.status === "FILE" && <FileCard key={lead.updated_at} lead={lead} onSave={saveFile} canEdit={user?.role === "admin" || user?.role === "ops"} canStatus={isStaffLike} onUpdateStatus={updateProcessingStatus} />}
           {lead.status === "FILE" && (user?.role === "admin" || user?.role === "ops") && <DocumentsCard lead={lead} reload={load} />}
 
           <div className="bg-white border border-slate-200 rounded-md p-5 shadow-sm">

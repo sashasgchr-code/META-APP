@@ -55,6 +55,11 @@ CRM_STATUSES = ["NEW", "CALL_BACK", "NOT_ANSWERING", "SWITCHED_OFF", "NOT_INTERE
 STAFF_ROLES = ("admin", "ops")
 SHEET_STATUS_MAP = {"CREATED": "NEW", "FILE": "FILE"}
 DISPOSITIONS = {"NOT_ANSWERING", "SWITCHED_OFF", "NOT_INTERESTED", "NOT_QUALIFIED", "CALL_BACK", "LEAD", "FILE"}
+PROCESSING_STATUSES = ["New", "Contacted", "Documents Collected", "Documents Pending", "Sent for Eligibility",
+    "Sent for Login", "Login Done", "Sent for Approval", "Underwriting", "FI (Field Investigation)",
+    "FI Negative", "FI Reinitiated", "Query/Hold", "Customer Not Interested - Need Help from MIT & Manager",
+    "Customer Not Supporting - Need Help from MIT & Manager", "Approved", "Disbursed", "Not Eligible",
+    "Not Login", "Declined", "Not Disbursed"]
 
 
 # ------------------- Models -------------------
@@ -67,6 +72,9 @@ class RegisterInput(BaseModel):
 
 class ProcessorInput(BaseModel):
     processor_id: Optional[str] = None
+
+class ProcStatusInput(BaseModel):
+    status: str
 
 class LoginInput(BaseModel):
     email: EmailStr
@@ -907,6 +915,25 @@ async def assign_processor(lead_id: str, inp: ProcessorInput, user: dict = Depen
     await db.leads.update_one({"lead_id": lead_id}, {"$set": {"assigned_processor_id": inp.processor_id,
         "assigned_processor_name": pname, "updated_at": now_iso()},
         "$push": {"activities": {"type": "processor", "detail": detail, "at": now_iso()}}})
+    return await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+
+
+@api_router.get("/processing-statuses")
+async def processing_statuses(user: dict = Depends(get_current_user)):
+    return PROCESSING_STATUSES
+
+
+@api_router.patch("/leads/{lead_id}/processing-status")
+async def update_processing_status(lead_id: str, inp: ProcStatusInput, user: dict = Depends(get_current_user)):
+    if user.get("role") not in ("admin", "ops", "processor"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if inp.status not in PROCESSING_STATUSES:
+        raise HTTPException(status_code=400, detail="Invalid processing status")
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0, "lead_id": 1})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    await db.leads.update_one({"lead_id": lead_id}, {"$set": {"processing_status": inp.status, "updated_at": now_iso()},
+        "$push": {"activities": {"type": "processing", "detail": f"Processing status set to '{inp.status}' by {user['name']}", "at": now_iso()}}})
     return await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
 
 
