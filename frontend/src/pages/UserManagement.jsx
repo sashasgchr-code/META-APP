@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { toast } from "sonner";
-import { ShieldCheck, Eye, EyeOff, KeyRound, Check, X, Loader2, Clock } from "lucide-react";
+import { ShieldCheck, Eye, EyeOff, KeyRound, Check, X, Loader2, Clock, AlertTriangle, RotateCcw } from "lucide-react";
 
 const ROLE_STYLES = {
   admin: "bg-brand/10 text-brand border-brand/20",
@@ -19,6 +19,17 @@ export default function UserManagement() {
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
   const [showDeleted, setShowDeleted] = useState(false);
+  const [resetting, setResetting] = useState(false);
+
+  const resetData = async () => {
+    if (!window.confirm("Reset the app to a fresh state?\n\nThis will set EVERY lead back to NEW, unassign all leads, and delete all FILE data, uploaded documents and call logs. Leads themselves are kept. This cannot be undone.")) return;
+    if (!window.confirm("Are you absolutely sure? This is permanent.")) return;
+    setResetting(true);
+    try {
+      const { data } = await api.post("/admin/reset-data");
+      toast.success(`Reset complete — ${data.leads_reset} leads reset, ${data.documents_deleted} documents deleted`);
+    } catch (e) { toast.error(e?.response?.data?.detail || "Reset failed"); } finally { setResetting(false); }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -160,6 +171,24 @@ export default function UserManagement() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+
+        <div className="mt-8 bg-red-50/50 border border-red-200 rounded-md p-5" data-testid="danger-zone">
+          <div className="flex items-start gap-3">
+            <AlertTriangle size={20} className="text-red-600 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <h3 className="text-sm font-semibold text-red-800">Danger Zone — Reset app data</h3>
+              <p className="text-xs text-red-600/90 mt-1 max-w-xl">
+                Sets every lead back to <strong>NEW</strong>, unassigns all leads, and permanently deletes all FILE data,
+                uploaded documents and call logs. The leads themselves are kept. Use this to start fresh.
+              </p>
+            </div>
+            <button data-testid="reset-data-btn" disabled={resetting} onClick={resetData}
+              className="shrink-0 inline-flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white rounded-md px-4 py-2 text-sm font-medium transition-colors disabled:opacity-60">
+              {resetting ? <Loader2 size={15} className="animate-spin" /> : <RotateCcw size={15} />}
+              {resetting ? "Resetting..." : "Reset to fresh"}
+            </button>
           </div>
         </div>
       </div>

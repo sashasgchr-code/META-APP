@@ -928,6 +928,30 @@ async def bulk_delete(inp: BulkAssignInput, user: dict = Depends(require_admin))
     return {"deleted": res.modified_count}
 
 
+@api_router.post("/admin/reset-data")
+async def reset_data(admin: dict = Depends(require_admin)):
+    deleted_files = 0
+    cursor = db.leads.find({"documents.0": {"$exists": True}}, {"_id": 0, "documents": 1})
+    async for l in cursor:
+        for d in l.get("documents", []):
+            try:
+                await fs_bucket.delete(ObjectId(d["doc_id"]))
+                deleted_files += 1
+            except Exception:
+                pass
+    reset_activity = {"type": "reset", "detail": f"Data reset to fresh state by {admin['name']}", "at": now_iso()}
+    res = await db.leads.update_many(
+        {"deleted": {"$ne": True}},
+        {"$set": {"status": "NEW", "assigned_partner_id": None, "assigned_partner_name": None,
+                  "assigned_by": None, "assigned_at": None, "assigned_processor_id": None,
+                  "assigned_processor_name": None, "documents": [], "call_logs": [],
+                  "activities": [reset_activity], "updated_at": now_iso()},
+         "$unset": {"file": "", "file_created_at": "", "processing_status": "",
+                    "disposition": "", "docs_received": ""}})
+    return {"ok": True, "leads_reset": res.modified_count, "documents_deleted": deleted_files}
+
+
+
 @api_router.get("/partners")
 async def list_partners(user: dict = Depends(require_staff)):
     partners = await db.users.find({"role": "growth_partner", "approved": True, "deleted": {"$ne": True}},
