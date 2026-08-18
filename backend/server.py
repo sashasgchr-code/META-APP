@@ -678,7 +678,7 @@ async def update_status(lead_id: str, inp: LeadUpdate, user: dict = Depends(get_
     return updated
 
 @api_router.patch("/leads/{lead_id}/assign")
-async def assign_lead(lead_id: str, inp: AssignInput, user: dict = Depends(require_admin)):
+async def assign_lead(lead_id: str, inp: AssignInput, user: dict = Depends(require_staff)):
     lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
@@ -869,7 +869,7 @@ async def call_logs(user: dict = Depends(get_current_user)):
 
 # ------------------- Partners routes -------------------
 @api_router.post("/leads/bulk-assign")
-async def bulk_assign(inp: BulkAssignInput, user: dict = Depends(require_admin)):
+async def bulk_assign(inp: BulkAssignInput, user: dict = Depends(require_staff)):
     if not inp.lead_ids:
         raise HTTPException(status_code=400, detail="No leads selected")
     partner = None
@@ -911,7 +911,7 @@ async def bulk_delete(inp: BulkAssignInput, user: dict = Depends(require_admin))
 
 
 @api_router.get("/partners")
-async def list_partners(user: dict = Depends(require_admin)):
+async def list_partners(user: dict = Depends(require_staff)):
     partners = await db.users.find({"role": "growth_partner", "approved": True, "deleted": {"$ne": True}},
                                    {"_id": 0, "password_hash": 0, "visible_password": 0}).to_list(1000)
     rate = await get_commission_rate()

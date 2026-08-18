@@ -19,12 +19,20 @@ export const STATUS_STYLES = {
 export const STATUS_LABEL = (s) => (s || "").replace(/_/g, " ");
 const STATUSES = ["ALL", "NEW", "CALL_BACK", "NOT_ANSWERING", "SWITCHED_OFF", "NOT_INTERESTED", "NOT_QUALIFIED", "LEAD", "FILE"];
 
+const fmtDate = (v) => {
+  if (!v) return "—";
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return String(v).slice(0, 10);
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+};
+
 export const StatusPill = ({ status }) => (
   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${STATUS_STYLES[status] || STATUS_STYLES.NEW}`}>{STATUS_LABEL(status)}</span>
 );
 
 export default function Leads() {
   const { user } = useAuth();
+  const isStaff = user?.role === "admin" || user?.role === "ops";
   const navigate = useNavigate();
   const [leads, setLeads] = useState([]);
   const [partners, setPartners] = useState([]);
@@ -90,8 +98,8 @@ export default function Leads() {
     } catch (e) { toast.error("Delete failed"); }
   };
   useEffect(() => {
-    if (user?.role === "admin") api.get("/partners").then(({ data }) => setPartners(data)).catch(() => {});
-  }, [user]);
+    if (isStaff) api.get("/partners").then(({ data }) => setPartners(data)).catch(() => {});
+  }, [isStaff]);
 
   const sync = async () => {
     setSyncing(true);
@@ -135,7 +143,7 @@ export default function Leads() {
                 className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${status === s ? "bg-brand text-white border-brand" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}>{s === "ALL" ? "ALL" : STATUS_LABEL(s)}</button>
             ))}
           </div>
-          {user?.role === "admin" && (
+          {isStaff && (
             <select data-testid="partner-filter" value={partnerFilter} onChange={(e) => setPartnerFilter(e.target.value)}
               className="border border-slate-300 rounded-md px-3 py-2 text-sm bg-white outline-none focus:border-brand">
               <option value="ALL">All Partners</option>
@@ -145,7 +153,7 @@ export default function Leads() {
           )}
         </div>
 
-        {user?.role === "admin" && selected.size > 0 && (
+        {isStaff && selected.size > 0 && (
           <div className="flex items-center gap-3 mb-3 bg-brand/5 border border-brand/20 rounded-md px-4 py-2.5" data-testid="bulk-action-bar">
             <span className="text-sm font-medium text-brand-dark" data-testid="bulk-selected-count">{selected.size} selected</span>
             <select data-testid="bulk-partner-select" value={bulkPartner} onChange={(e) => setBulkPartner(e.target.value)}
@@ -155,8 +163,10 @@ export default function Leads() {
             </select>
             <button data-testid="bulk-assign-btn" onClick={doBulkAssign}
               className="bg-brand text-white hover:bg-brand/90 rounded-md px-4 py-1.5 text-sm font-medium transition-colors">Apply</button>
-            <button data-testid="bulk-delete-btn" onClick={doBulkDelete}
-              className="bg-red-600 text-white hover:bg-red-700 rounded-md px-4 py-1.5 text-sm font-medium transition-colors">Delete</button>
+            {user?.role === "admin" && (
+              <button data-testid="bulk-delete-btn" onClick={doBulkDelete}
+                className="bg-red-600 text-white hover:bg-red-700 rounded-md px-4 py-1.5 text-sm font-medium transition-colors">Delete</button>
+            )}
             <button data-testid="bulk-clear-btn" onClick={() => setSelected(new Set())}
               className="text-slate-500 text-sm hover:text-slate-700 transition-colors">Clear</button>
           </div>
@@ -167,18 +177,21 @@ export default function Leads() {
             <table className="w-full border-collapse">
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-200">
-                  {user?.role === "admin" && (
+                  {isStaff && (
                     <th className="py-3 px-3 w-10">
                       <input type="checkbox" data-testid="select-all-checkbox" checked={allOnPage} onChange={toggleAll} className="accent-[#0F52BA] cursor-pointer" />
                     </th>
                   )}
                   {[
+                    { h: "Date", f: "created_time" },
                     { h: "Name", f: "full_name" },
                     { h: "Contact", f: null },
                     { h: "City", f: "city" },
-                    { h: "Loan Profile", f: null },
+                    { h: "Employment", f: null },
+                    { h: "Salary", f: null },
+                    { h: "Outstanding", f: null },
                     { h: "Status", f: "status" },
-                    { h: "Growth Partner", f: null },
+                    { h: "Partner", f: null },
                   ].map(({ h, f }) => (
                     <th key={h} className="text-xs font-semibold uppercase tracking-wider text-slate-500 py-3 px-3 text-left">
                       {f ? (
@@ -192,17 +205,18 @@ export default function Leads() {
               </thead>
               <tbody data-testid="leads-table-body">
                 {loading ? (
-                  <tr><td colSpan={user?.role === "admin" ? 7 : 6} className="py-16 text-center text-slate-400 text-sm">Loading leads...</td></tr>
+                  <tr><td colSpan={isStaff ? 10 : 9} className="py-16 text-center text-slate-400 text-sm">Loading leads...</td></tr>
                 ) : leads.length === 0 ? (
-                  <tr><td colSpan={user?.role === "admin" ? 7 : 6} className="py-16 text-center text-slate-400 text-sm">No leads found. Sync with Google Sheets to import data.</td></tr>
+                  <tr><td colSpan={isStaff ? 10 : 9} className="py-16 text-center text-slate-400 text-sm">No leads found. Sync with Google Sheets to import data.</td></tr>
                 ) : leads.map((lead) => (
                   <tr key={lead.lead_id} data-testid={`lead-row-${lead.lead_id}`} onClick={() => navigate(`/leads/${lead.lead_id}`)}
                     className="border-b border-slate-100 hover:bg-slate-50/60 transition-colors cursor-pointer">
-                    {user?.role === "admin" && (
+                    {isStaff && (
                       <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
                         <input type="checkbox" data-testid={`row-checkbox-${lead.lead_id}`} checked={selected.has(lead.lead_id)} onChange={() => toggleOne(lead.lead_id)} className="accent-[#0F52BA] cursor-pointer" />
                       </td>
                     )}
+                    <td className="py-2.5 px-3 text-xs text-slate-500 whitespace-nowrap" data-testid={`lead-date-${lead.lead_id}`}>{fmtDate(lead.created_time || lead.created_at)}</td>
                     <td className="py-2.5 px-3">
                       <p className="text-sm font-medium text-slate-800">{lead.full_name || "—"}</p>
                       <p className="text-xs text-slate-400">{lead.campaign_name?.slice(0, 28)}</p>
@@ -220,13 +234,12 @@ export default function Leads() {
                       </div>
                     </td>
                     <td className="py-2.5 px-3 text-sm text-slate-600"><span className="inline-flex items-center gap-1"><MapPin size={12} className="text-slate-400" />{lead.city || "—"}</span></td>
-                    <td className="py-2.5 px-3">
-                      <p className="text-xs text-slate-600">{lead.employment_status}</p>
-                      <p className="text-xs text-slate-400">₹ {lead.outstanding_amount}</p>
-                    </td>
+                    <td className="py-2.5 px-3 text-xs text-slate-600">{lead.employment_status || "—"}</td>
+                    <td className="py-2.5 px-3 text-xs text-slate-600">{lead.monthly_salary || "—"}</td>
+                    <td className="py-2.5 px-3 text-xs text-slate-600">{lead.outstanding_amount || "—"}</td>
                     <td className="py-2.5 px-3"><StatusPill status={lead.status} /></td>
                     <td className="py-2.5 px-3" onClick={(e) => e.stopPropagation()}>
-                      {user?.role === "admin" ? (
+                      {isStaff ? (
                         <select data-testid={`assign-select-${lead.lead_id}`} value={lead.assigned_partner_id || ""}
                           onChange={(e) => assign(lead.lead_id, e.target.value, e)}
                           className="border border-slate-200 rounded-md px-2 py-1 text-xs bg-white outline-none focus:border-brand max-w-[160px]">

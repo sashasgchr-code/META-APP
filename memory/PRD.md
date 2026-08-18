@@ -1,39 +1,36 @@
 # BankEzee CRM — PRD
 
-## Original Problem Statement
-Create a copy of https://crm.bankezee.com/ with one difference: leads are automatically imported from a public Google Sheet (Meta lead-form data) with additional fields as needed, and there must be an option to assign each lead to a Growth Partner.
+## Problem statement
+A copy of BankEzee CRM where leads auto-import from a Google Sheet (with extra fields as needed) and can be assigned to Growth Partners. Includes core CRM features, JWT/Google auth, processor roles, document management, and call logging.
 
-## Architecture
-- Frontend: React 19 (CRA + craco), Tailwind, shadcn/ui, recharts, sonner, framer-motion. Fonts: Outfit (headings) + IBM Plex Sans (body). Brand blue #0F52BA / navy #0A192F sidebar.
-- Backend: FastAPI + Motor (MongoDB async). All routes under /api.
-- Auth: Dual — JWT-style DB session (email/password, bcrypt) AND Emergent Google OAuth. Unified `user_sessions` (session_token, 7-day). `get_current_user` reads cookie then Bearer.
-- Lead import: real public Google Sheet CSV export; dedupe by sheet `id`; filters out Meta test/organic dummy rows.
-- Scheduling: `.emergent/crons.yml` hourly `sync-leads-hourly` -> POST /api/cron/sync-leads (Bearer WEBHOOK_CRON_SECRET, backgrounds work).
+## Stack
+- Backend: FastAPI + MongoDB (Motor, GridFS), monolithic `/app/backend/server.py`
+- Frontend: React + TailwindCSS, pages in `/app/frontend/src/pages/`
+- Integrations: Resend (emails via Emergent proxy), Google Sheets sync (cron)
 
-## User Personas
-- Admin (owner, sasha.sgchr@gmail.com): sees all leads, dashboard, assigns leads to partners, views partner directory.
-- Growth Partner (self-registers): sees only leads assigned to them; can update status & add notes; cannot assign or view partner directory.
+## Roles
+- admin: full access
+- ops (STAFF): sees all leads; can assign/bulk-assign growth partners, filter by partner (NOT bulk delete — admin only)
+- growth_partner: sees only assigned leads (self-register, needs admin approval)
+- processor: works files assigned to them
 
-## Core Requirements (static)
-- Auto-import leads from Google Sheet + manual "Sync Now".
-- Assign leads to Growth Partners.
-- CRM pipeline (NEW/CONTACTED/CALLED/CONVERTED/REJECTED), dashboard stats + charts, lead detail with notes & activity timeline, partner directory.
+## Environments
+- PREVIEW (dev): lead-sync-hub-15.preview.emergentagent.com
+- PRODUCTION: https://meta.bankezee.com (redeploy needed to push preview changes)
 
-## Implemented (2026-06)
-- Dual auth (email/password + Google OAuth), growth-partner self-registration, admin seed.
-- Google Sheet CSV import (initial + manual + hourly cron), dummy-row filtering, 238 real leads.
-- Leads list with search/status/partner filters, per-row assign dropdown (admin).
-- Lead detail: info panel, status buttons, assign dropdown, notes, activity timeline.
-- Dashboard: metric cards, Leads-by-City bar chart, pipeline pie chart, last-sync indicator.
-- Partners directory (admin-only) with assigned/converted counts.
-- Role isolation enforced on all lead/partner endpoints. Tested 13/13 backend, 10/11 UI.
+## Implemented (latest first)
+- 2026-06: **Date column** on Leads table (created_time formatted, sortable).
+- 2026-06: **Ops can assign growth partners** — `assign_lead`, `bulk_assign`, `list_partners` now `require_staff`; frontend assign UI (dropdown, partner filter, checkboxes, bulk-assign bar) unlocked for ops via `isStaff`. Bulk delete remains admin-only.
+- Leads table shows Employment, Salary, Outstanding, Name, Contact (phone+email), City, Status, Partner.
+- Google Sheets ingestion + cron sync; JWT + Google auth; Resend emails.
+- Click-to-dial + call disposition logging; FILE stage with bank eligibilities & processor status.
+- GridFS document uploads + ZIP downloads; soft-delete for users/leads; File Reports + CSV exports.
+- "CONVERTED" status fully removed; FILE is the final pipeline stage.
 
-## Backlog / Remaining
-- P1: Pagination on /api/leads (currently 2000 cap).
-- P2: Partner-facing lead-generation (QR code) like original Bankezee retail/growth flows.
-- P2: Email notifications to partner on assignment (Resend).
-- P2: Commission/earnings tracking for partners.
+## Terminology
+- `status`: pipeline flow (NEW → FILE). `processing_status`: bank progress after FILE.
+- Soft delete: active queries use `{"deleted": {"$ne": True}}`.
 
-## Next Tasks
-- Add pagination + server-side sorting to leads.
-- Optional: assignment email notifications.
+## Backlog
+- P1: Mobile responsiveness for the now-wider Leads table (card view vs horizontal scroll — pending user choice).
+- P2: Real-time Google Sheets webhook (Apps Script trigger) instead of cron polling.
