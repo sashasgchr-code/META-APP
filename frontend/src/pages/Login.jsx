@@ -79,7 +79,7 @@ export default function Login() {
           </button>
 
           <p className="text-sm text-slate-500 mt-6 text-center">
-            New growth partner?{" "}
+            New growth partner or processor?{" "}
             <Link data-testid="go-register-link" to="/register" className="text-brand font-medium hover:underline">Register here</Link>
           </p>
         </div>
