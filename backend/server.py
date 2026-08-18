@@ -554,7 +554,7 @@ async def list_leads(request: Request, status: Optional[str] = None, q: Optional
                      partner: Optional[str] = None, page: int = 1, page_size: int = 25,
                      sort_by: str = "created_time", sort_dir: str = "desc",
                      user: dict = Depends(get_current_user)):
-    query = {}
+    query = {"deleted": {"$ne": True}}
     if user.get("role") not in STAFF_ROLES:
         query["assigned_partner_id"] = user["user_id"]
     if status and status != "ALL":
@@ -581,7 +581,7 @@ async def list_leads(request: Request, status: Optional[str] = None, q: Optional
 @api_router.get("/leads/stats")
 async def lead_stats(user: dict = Depends(get_current_user), from_date: Optional[str] = None,
                      to_date: Optional[str] = None, partner: Optional[str] = None):
-    match = {}
+    match = {"deleted": {"$ne": True}}
     if user.get("role") not in STAFF_ROLES:
         match["assigned_partner_id"] = user["user_id"]
     elif partner and partner != "ALL":
@@ -796,7 +796,7 @@ async def delete_document(lead_id: str, doc_id: str, user: dict = Depends(requir
 
 @api_router.get("/files/stats")
 async def files_stats(user: dict = Depends(get_current_user)):
-    match = {}
+    match = {"deleted": {"$ne": True}}
     if user.get("role") not in STAFF_ROLES:
         match["assigned_partner_id"] = user["user_id"]
     file_match = {**match, "status": "FILE"}
@@ -808,7 +808,7 @@ async def files_stats(user: dict = Depends(get_current_user)):
 
 @api_router.get("/call-logs")
 async def call_logs(user: dict = Depends(get_current_user)):
-    match = {"call_logs.0": {"$exists": True}}
+    match = {"call_logs.0": {"$exists": True}, "deleted": {"$ne": True}}
     if user.get("role") not in STAFF_ROLES:
         match["assigned_partner_id"] = user["user_id"]
     leads = await db.leads.find(match, {"_id": 0, "lead_id": 1, "full_name": 1, "phone": 1,
@@ -848,6 +848,23 @@ async def bulk_assign(inp: BulkAssignInput, user: dict = Depends(require_admin))
     if inp.partner_id and partner:
         asyncio.create_task(notify_partner_bulk(partner, result.modified_count, user["name"]))
     return {"modified": result.modified_count}
+
+
+@api_router.delete("/leads/{lead_id}")
+async def delete_lead(lead_id: str, user: dict = Depends(require_admin)):
+    res = await db.leads.update_one({"lead_id": lead_id}, {"$set": {"deleted": True, "deleted_at": now_iso()}})
+    if not res.matched_count:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    return {"ok": True}
+
+
+@api_router.post("/leads/bulk-delete")
+async def bulk_delete(inp: BulkAssignInput, user: dict = Depends(require_admin)):
+    if not inp.lead_ids:
+        raise HTTPException(status_code=400, detail="No leads selected")
+    res = await db.leads.update_many({"lead_id": {"$in": inp.lead_ids}},
+        {"$set": {"deleted": True, "deleted_at": now_iso()}})
+    return {"deleted": res.modified_count}
 
 
 @api_router.get("/partners")
@@ -940,7 +957,7 @@ async def update_processing_status(lead_id: str, inp: ProcStatusInput, user: dic
 @api_router.get("/files/report")
 async def files_report(user: dict = Depends(get_current_user), from_date: Optional[str] = None,
                        to_date: Optional[str] = None, partner: Optional[str] = None, processor: Optional[str] = None):
-    match = {"status": "FILE"}
+    match = {"status": "FILE", "deleted": {"$ne": True}}
     if user.get("role") == "growth_partner":
         match["assigned_partner_id"] = user["user_id"]
     elif user.get("role") == "processor":
@@ -999,7 +1016,7 @@ async def files_report(user: dict = Depends(get_current_user), from_date: Option
 @api_router.get("/files/report/export")
 async def files_report_export(user: dict = Depends(get_current_user), from_date: Optional[str] = None,
                               to_date: Optional[str] = None, partner: Optional[str] = None, processor: Optional[str] = None):
-    match = {"status": "FILE"}
+    match = {"status": "FILE", "deleted": {"$ne": True}}
     if user.get("role") == "growth_partner":
         match["assigned_partner_id"] = user["user_id"]
     elif user.get("role") == "processor":

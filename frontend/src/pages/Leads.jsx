@@ -81,6 +81,14 @@ export default function Leads() {
       setSelected(new Set()); setBulkPartner(""); load();
     } catch (e) { toast.error("Bulk assign failed"); }
   };
+  const doBulkDelete = async () => {
+    if (!window.confirm(`Delete ${selected.size} lead(s)? They will be removed from all lists and reports.`)) return;
+    try {
+      const { data } = await api.post("/leads/bulk-delete", { lead_ids: [...selected] });
+      toast.success(`${data.deleted} lead${data.deleted === 1 ? "" : "s"} deleted`);
+      setSelected(new Set()); load();
+    } catch (e) { toast.error("Delete failed"); }
+  };
   useEffect(() => {
     if (user?.role === "admin") api.get("/partners").then(({ data }) => setPartners(data)).catch(() => {});
   }, [user]);
@@ -147,6 +155,8 @@ export default function Leads() {
             </select>
             <button data-testid="bulk-assign-btn" onClick={doBulkAssign}
               className="bg-brand text-white hover:bg-brand/90 rounded-md px-4 py-1.5 text-sm font-medium transition-colors">Apply</button>
+            <button data-testid="bulk-delete-btn" onClick={doBulkDelete}
+              className="bg-red-600 text-white hover:bg-red-700 rounded-md px-4 py-1.5 text-sm font-medium transition-colors">Delete</button>
             <button data-testid="bulk-clear-btn" onClick={() => setSelected(new Set())}
               className="text-slate-500 text-sm hover:text-slate-700 transition-colors">Clear</button>
           </div>

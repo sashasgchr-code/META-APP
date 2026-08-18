@@ -1,0 +1,25 @@
+{
+  "summary": "Iteration 8: verified admin lead soft-delete (single + bulk), role restrictions, exclusion from reports/list/stats, plus previously-untested PATCH /leads/{id}/processing-status. Backend 14/14 pytest passed. Frontend bulk-delete via Leads UI validated: bulk-action-bar + bulk-delete-btn appear, confirm dialog, 2 seeded test leads deleted, toast shown, rows disappear, count label updates to '0 leads'.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter8_delete_procstatus.py",
+    "/app/test_reports/pytest/iter8_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is ~1208 lines - approaching the 700-line split threshold; recommend splitting into leads/files/users/auth routers for maintainability.",
+    "delete_lead & bulk_delete correctly soft-delete via {deleted:true, deleted_at} and all reporting/list endpoints include {'deleted':{'$ne':true}} filter (verified in code and via stats delta).",
+    "No public POST /api/leads create endpoint exists (leads come from Google Sheet sync). Tests seed via mongo directly - acceptable for the current architecture."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter8_delete_procstatus.py (new)"
+  ],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100% (bulk delete flow verified)"},
+  "test_credentials": "Admin sasha.sgchr@gmail.com / Admin@123456; Ops rama.saffronglobal@gmail.com / Ops@123456; Partner priya@example.com / Priya@123456; Processor teja@bankezee.com / Processor@123",
+  "seed_data_creation": "Inserted TEST_LEAD_* docs directly into MongoDB during pytest and 2 TEST_UI_* leads for UI test. All were soft-deleted by the tests themselves; leftover soft-deleted docs remain in DB but are excluded from every list/report endpoint by design.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend test file /app/backend/tests/test_iter8_delete_procstatus.py covers: single delete (partner/ops/processor 403, admin 200 with stats decrement & list exclusion, 404 for missing id), bulk delete (partner 403, empty 400, admin bulk-delete N with stats delta), processing-status (admin/ops/processor 200, partner 403, invalid status 400). Ran via: REACT_APP_BACKEND_URL=<url> pytest -o addopts= -v. Use MongoClient direct insert to seed leads because there's no public POST /leads endpoint.",
+  "rca of the issue": "N/A - all requested behaviour works as intended."
+}
