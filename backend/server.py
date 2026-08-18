@@ -912,7 +912,7 @@ async def bulk_delete(inp: BulkAssignInput, user: dict = Depends(require_admin))
 
 @api_router.get("/partners")
 async def list_partners(user: dict = Depends(require_admin)):
-    partners = await db.users.find({"role": "growth_partner", "approved": True},
+    partners = await db.users.find({"role": "growth_partner", "approved": True, "deleted": {"$ne": True}},
                                    {"_id": 0, "password_hash": 0, "visible_password": 0}).to_list(1000)
     rate = await get_commission_rate()
     for p in partners:
