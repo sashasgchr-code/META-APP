@@ -1,10 +1,27 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
-import { FolderOpen, FileCheck2, FileClock, MapPin, Eye, EyeOff, ChevronRight } from "lucide-react";
+import { FolderOpen, FileCheck2, FileClock, MapPin, Eye, EyeOff, ChevronRight, Search } from "lucide-react";
 
 const inr = (n) => (n ? `₹${Number(n).toLocaleString("en-IN")}` : "—");
 const maskPhone = (p) => { const s = (p || "").replace(/\s/g, ""); return s ? "*****" + s.slice(-4) : "—"; };
+
+const PROC_STATUSES = ["New", "Contacted", "Documents Collected", "Documents Pending", "Sent for Eligibility",
+  "Sent for Login", "Login Done", "Sent for Approval", "Underwriting", "FI (Field Investigation)",
+  "FI Negative", "FI Reinitiated", "Query/Hold", "Customer Not Interested - Need Help from MIT & Manager",
+  "Customer Not Supporting - Need Help from MIT & Manager", "Approved", "Disbursed", "Not Eligible",
+  "Not Login", "Declined", "Not Disbursed"];
+
+const GREEN = new Set(["Approved", "Disbursed", "Login Done", "Documents Collected"]);
+const RED = new Set(["Declined", "Not Eligible", "Not Login", "Not Disbursed", "FI Negative"]);
+const AMBER = new Set(["Query/Hold", "Documents Pending", "FI Reinitiated", "Underwriting",
+  "Customer Not Interested - Need Help from MIT & Manager", "Customer Not Supporting - Need Help from MIT & Manager"]);
+const BLUE = new Set(["Sent for Eligibility", "Sent for Login", "Sent for Approval", "Contacted", "FI (Field Investigation)"]);
+const STATUS_COLOR = (s) => GREEN.has(s) ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+  : RED.has(s) ? "bg-red-50 text-red-700 border-red-200"
+  : AMBER.has(s) ? "bg-amber-50 text-amber-700 border-amber-200"
+  : BLUE.has(s) ? "bg-blue-50 text-blue-700 border-blue-200"
+  : "bg-slate-100 text-slate-600 border-slate-200";
 
 const StatCard = ({ label, value, icon: Icon, accent }) => (
   <div className="bg-white border border-slate-200 rounded-md p-5 shadow-sm">
@@ -40,7 +57,7 @@ function FileRow({ f, onOpen }) {
         </p>
       </div>
       <div className="flex items-center gap-3 shrink-0">
-        <span data-testid={`proc-status-${f.lead_id}`} className="text-sm font-medium text-slate-700 text-right max-w-[220px]">{f.processing_status || "New"}</span>
+        <span data-testid={`proc-status-${f.lead_id}`} className={`text-xs font-medium px-2.5 py-1 rounded-full border text-right ${STATUS_COLOR(f.processing_status || "New")}`}>{f.processing_status || "New"}</span>
         <ChevronRight size={16} className="text-slate-300" />
       </div>
     </div>
@@ -52,6 +69,8 @@ export default function Files() {
   const [stats, setStats] = useState(null);
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [q, setQ] = useState("");
+  const [statusFilter, setStatusFilter] = useState("ALL");
 
   useEffect(() => {
     Promise.all([
@@ -59,6 +78,12 @@ export default function Files() {
       api.get("/leads", { params: { status: "FILE", page_size: 200 } }).then(({ data }) => setFiles(data.items)),
     ]).finally(() => setLoading(false));
   }, []);
+
+  const filtered = files.filter((f) => {
+    const okS = statusFilter === "ALL" || (f.processing_status || "New") === statusFilter;
+    const okQ = !q || `${f.full_name || ""} ${f.phone || ""} ${f.file?.loan_type || ""}`.toLowerCase().includes(q.toLowerCase());
+    return okS && okQ;
+  });
 
   return (
     <div>
@@ -74,12 +99,25 @@ export default function Files() {
           <StatCard label="Docs Pending" value={stats?.pending_docs ?? "—"} icon={FileClock} accent="bg-amber-50 text-amber-600" />
         </div>
 
+        <div className="flex flex-wrap items-center gap-3 mb-4">
+          <div className="relative flex-1 min-w-[220px]">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input data-testid="files-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, phone, loan type..."
+              className="w-full border border-slate-300 rounded-md pl-9 pr-3 py-2 text-sm outline-none focus:border-brand bg-white" />
+          </div>
+          <select data-testid="files-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
+            className="border border-slate-300 rounded-md px-3 py-2 text-sm bg-white outline-none focus:border-brand">
+            <option value="ALL">All Statuses</option>
+            {PROC_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+
         <div className="bg-white border border-slate-200 rounded-md shadow-sm overflow-hidden" data-testid="files-list">
           {loading ? (
             <p className="py-16 text-center text-slate-400 text-sm">Loading files...</p>
-          ) : files.length === 0 ? (
-            <p className="py-16 text-center text-slate-400 text-sm">No files yet. Mark a call as "File" to open a loan file.</p>
-          ) : files.map((f) => <FileRow key={f.lead_id} f={f} onOpen={() => navigate(`/leads/${f.lead_id}`)} />)}
+          ) : filtered.length === 0 ? (
+            <p className="py-16 text-center text-slate-400 text-sm">No files match your filters.</p>
+          ) : filtered.map((f) => <FileRow key={f.lead_id} f={f} onOpen={() => navigate(`/leads/${f.lead_id}`)} />)}
         </div>
       </div>
     </div>
