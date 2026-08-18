@@ -591,6 +591,7 @@ SORT_FIELDS = {"created_time", "full_name", "city", "status"}
 async def list_leads(request: Request, status: Optional[str] = None, q: Optional[str] = None,
                      partner: Optional[str] = None, page: int = 1, page_size: int = 25,
                      sort_by: str = "created_time", sort_dir: str = "desc",
+                     from_date: Optional[str] = None, to_date: Optional[str] = None,
                      user: dict = Depends(get_current_user)):
     query = {"deleted": {"$ne": True}}
     if user.get("role") not in STAFF_ROLES:
@@ -599,6 +600,18 @@ async def list_leads(request: Request, status: Optional[str] = None, q: Optional
         query["status"] = status
     if partner and partner != "ALL" and user.get("role") in STAFF_ROLES:
         query["assigned_partner_id"] = None if partner == "UNASSIGNED" else partner
+    if from_date or to_date:
+        ct = {}
+        if from_date:
+            ct["$gte"] = f"{from_date}T00:00:00"
+        if to_date:
+            try:
+                nxt = (datetime.strptime(to_date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+                ct["$lt"] = f"{nxt}T00:00:00"
+            except ValueError:
+                pass
+        if ct:
+            query["created_time"] = ct
     if q:
         rx = re.escape(q)
         query["$or"] = [{"full_name": {"$regex": rx, "$options": "i"}},
@@ -695,7 +708,9 @@ async def assign_lead(lead_id: str, inp: AssignInput, user: dict = Depends(requi
         detail = f"Unassigned by {user['name']}"
     activity = {"type": "assignment", "detail": detail, "at": now_iso()}
     await db.leads.update_one({"lead_id": lead_id}, {"$set": {"assigned_partner_id": inp.partner_id,
-                              "assigned_partner_name": partner_name, "updated_at": now_iso()},
+                              "assigned_partner_name": partner_name, "updated_at": now_iso(),
+                              "assigned_by": (user["name"] if inp.partner_id else None),
+                              "assigned_at": (now_iso() if inp.partner_id else None)},
                               "$push": {"activities": activity}})
     updated = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
     if inp.partner_id and partner:
@@ -887,7 +902,10 @@ async def bulk_assign(inp: BulkAssignInput, user: dict = Depends(require_staff))
     activity = {"type": "assignment", "detail": detail, "at": now_iso()}
     result = await db.leads.update_many({"lead_id": {"$in": inp.lead_ids}},
         {"$set": {"assigned_partner_id": inp.partner_id, "assigned_partner_name": partner_name,
-                  "updated_at": now_iso()}, "$push": {"activities": activity}})
+                  "updated_at": now_iso(),
+                  "assigned_by": (user["name"] if inp.partner_id else None),
+                  "assigned_at": (now_iso() if inp.partner_id else None)},
+         "$push": {"activities": activity}})
     if inp.partner_id and partner:
         asyncio.create_task(notify_partner_bulk(partner, result.modified_count, user["name"]))
     return {"modified": result.modified_count}

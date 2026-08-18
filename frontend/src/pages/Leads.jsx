@@ -26,6 +26,13 @@ const fmtDate = (v) => {
   return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 };
 
+const fmtShort = (v) => {
+  if (!v) return "";
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+};
+
 export const StatusPill = ({ status }) => (
   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${STATUS_STYLES[status] || STATUS_STYLES.NEW}`}>{STATUS_LABEL(status)}</span>
 );
@@ -46,21 +53,39 @@ export default function Leads() {
   const [pages, setPages] = useState(1);
   const [sortBy, setSortBy] = useState("created_time");
   const [sortDir, setSortDir] = useState("desc");
+  const [datePreset, setDatePreset] = useState("ALL");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const params = { status, partner: partnerFilter, page, page_size: 25, sort_by: sortBy, sort_dir: sortDir };
       if (q) params.q = q;
+      if (fromDate) params.from_date = fromDate;
+      if (toDate) params.to_date = toDate;
       const { data } = await api.get("/leads", { params });
       setLeads(data.items);
       setTotal(data.total);
       setPages(data.pages);
     } finally { setLoading(false); }
-  }, [status, q, partnerFilter, page, sortBy, sortDir]);
+  }, [status, q, partnerFilter, page, sortBy, sortDir, fromDate, toDate]);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { setPage(1); }, [status, q, partnerFilter, sortBy, sortDir]);
+  useEffect(() => { setPage(1); }, [status, q, partnerFilter, sortBy, sortDir, fromDate, toDate]);
+
+  const localYMD = (d) => {
+    const off = d.getTimezoneOffset() * 60000;
+    return new Date(d - off).toISOString().slice(0, 10);
+  };
+  const applyPreset = (preset) => {
+    setDatePreset(preset);
+    const today = new Date();
+    if (preset === "ALL") { setFromDate(""); setToDate(""); }
+    else if (preset === "TODAY") { const t = localYMD(today); setFromDate(t); setToDate(t); }
+    else if (preset === "7D") { const s = new Date(today); s.setDate(s.getDate() - 6); setFromDate(localYMD(s)); setToDate(localYMD(today)); }
+    else if (preset === "30D") { const s = new Date(today); s.setDate(s.getDate() - 29); setFromDate(localYMD(s)); setToDate(localYMD(today)); }
+  };
 
   const toggleSort = (field) => {
     if (sortBy === field) setSortDir(sortDir === "asc" ? "desc" : "asc");
@@ -74,7 +99,7 @@ export default function Leads() {
   const [bulkPartner, setBulkPartner] = useState("");
   const [callLead, setCallLead] = useState(null);
   const logCallFor = async (payload) => { await api.post(`/leads/${callLead.lead_id}/calls`, payload); toast.success("Call logged"); load(); };
-  useEffect(() => { setSelected(new Set()); }, [page, status, q, partnerFilter, sortBy, sortDir]);
+  useEffect(() => { setSelected(new Set()); }, [page, status, q, partnerFilter, sortBy, sortDir, fromDate, toDate]);
   const toggleOne = (id) => { const s = new Set(selected); s.has(id) ? s.delete(id) : s.add(id); setSelected(s); };
   const allOnPage = leads.length > 0 && leads.every((l) => selected.has(l.lead_id));
   const toggleAll = () => {
@@ -153,6 +178,27 @@ export default function Leads() {
           )}
         </div>
 
+        <div className="flex flex-wrap items-center gap-2 mb-5" data-testid="date-filter-bar">
+          <span className="text-xs font-medium text-slate-500 mr-1">Date:</span>
+          {[
+            { k: "ALL", label: "All time" },
+            { k: "TODAY", label: "Today" },
+            { k: "7D", label: "Last 7 days" },
+            { k: "30D", label: "Last 30 days" },
+          ].map(({ k, label }) => (
+            <button key={k} data-testid={`date-preset-${k}`} onClick={() => applyPreset(k)}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${datePreset === k ? "bg-brand text-white border-brand" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}>{label}</button>
+          ))}
+          <div className="flex items-center gap-1.5 ml-1">
+            <input type="date" data-testid="date-from-input" value={fromDate}
+              onChange={(e) => { setDatePreset("CUSTOM"); setFromDate(e.target.value); }}
+              className="border border-slate-300 rounded-md px-2 py-1.5 text-xs bg-white outline-none focus:border-brand" />
+            <span className="text-slate-400 text-xs">to</span>
+            <input type="date" data-testid="date-to-input" value={toDate}
+              onChange={(e) => { setDatePreset("CUSTOM"); setToDate(e.target.value); }}
+              className="border border-slate-300 rounded-md px-2 py-1.5 text-xs bg-white outline-none focus:border-brand" />
+          </div>
+        </div>
         {isStaff && selected.size > 0 && (
           <div className="flex items-center gap-3 mb-3 bg-brand/5 border border-brand/20 rounded-md px-4 py-2.5" data-testid="bulk-action-bar">
             <span className="text-sm font-medium text-brand-dark" data-testid="bulk-selected-count">{selected.size} selected</span>
@@ -173,7 +219,7 @@ export default function Leads() {
         )}
 
         <div className="bg-white border border-slate-200 rounded-md shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full border-collapse">
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-200">
@@ -249,11 +295,92 @@ export default function Leads() {
                       ) : (
                         <span className="text-xs text-slate-500">{lead.assigned_partner_name || "—"}</span>
                       )}
+                      {lead.assigned_partner_id && lead.assigned_by && (
+                        <p data-testid={`assign-history-${lead.lead_id}`} className="text-[10px] text-slate-400 mt-1">
+                          by {lead.assigned_by}{lead.assigned_at ? ` · ${fmtShort(lead.assigned_at)}` : ""}
+                        </p>
+                      )}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+
+          <div className="md:hidden divide-y divide-slate-100" data-testid="leads-card-list">
+            {loading ? (
+              <div className="py-16 text-center text-slate-400 text-sm">Loading leads...</div>
+            ) : leads.length === 0 ? (
+              <div className="py-16 text-center text-slate-400 text-sm">No leads found. Sync with Google Sheets to import data.</div>
+            ) : leads.map((lead) => (
+              <div key={lead.lead_id} data-testid={`lead-card-${lead.lead_id}`} onClick={() => navigate(`/leads/${lead.lead_id}`)}
+                className="p-4 active:bg-slate-50 transition-colors cursor-pointer">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-2 min-w-0">
+                    {isStaff && (
+                      <input type="checkbox" data-testid={`row-checkbox-m-${lead.lead_id}`} checked={selected.has(lead.lead_id)}
+                        onClick={(e) => e.stopPropagation()} onChange={() => toggleOne(lead.lead_id)}
+                        className="accent-[#0F52BA] cursor-pointer mt-1 shrink-0" />
+                    )}
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-800 truncate">{lead.full_name || "—"}</p>
+                      <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5"><MapPin size={11} className="text-slate-400" />{lead.city || "—"}</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <StatusPill status={lead.status} />
+                    <span className="text-[11px] text-slate-400 whitespace-nowrap" data-testid={`lead-date-m-${lead.lead_id}`}>{fmtDate(lead.created_time || lead.created_at)}</span>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                  <a data-testid={`call-link-m-${lead.lead_id}`} href={`tel:${lead.phone}`} onClick={() => setCallLead(lead)}
+                    className="h-8 w-8 rounded-full bg-emerald-50 text-emerald-600 hover:bg-emerald-100 flex items-center justify-center transition-colors shrink-0" title="Call">
+                    <Phone size={15} />
+                  </a>
+                  <div className="min-w-0">
+                    <a href={`tel:${lead.phone}`} onClick={() => setCallLead(lead)} className="text-sm text-brand hover:underline block">{lead.phone}</a>
+                    <p className="text-xs text-slate-400 truncate">{lead.email}</p>
+                  </div>
+                </div>
+
+                <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                  <div className="bg-slate-50 rounded-md py-1.5 px-1">
+                    <p className="text-[10px] uppercase tracking-wide text-slate-400">Employment</p>
+                    <p className="text-[11px] text-slate-700 leading-tight mt-0.5">{lead.employment_status || "—"}</p>
+                  </div>
+                  <div className="bg-slate-50 rounded-md py-1.5 px-1">
+                    <p className="text-[10px] uppercase tracking-wide text-slate-400">Salary</p>
+                    <p className="text-[11px] text-slate-700 leading-tight mt-0.5">{lead.monthly_salary || "—"}</p>
+                  </div>
+                  <div className="bg-slate-50 rounded-md py-1.5 px-1">
+                    <p className="text-[10px] uppercase tracking-wide text-slate-400">Outstanding</p>
+                    <p className="text-[11px] text-slate-700 leading-tight mt-0.5">{lead.outstanding_amount || "—"}</p>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex items-center justify-between gap-2" onClick={(e) => e.stopPropagation()}>
+                  <span className="text-[11px] text-slate-400 shrink-0">Partner</span>
+                  <div className="flex flex-col items-end min-w-0">
+                    {isStaff ? (
+                      <select data-testid={`assign-select-m-${lead.lead_id}`} value={lead.assigned_partner_id || ""}
+                        onChange={(e) => assign(lead.lead_id, e.target.value, e)}
+                        className="border border-slate-200 rounded-md px-2 py-1 text-xs bg-white outline-none focus:border-brand max-w-[180px]">
+                        <option value="">Unassigned</option>
+                        {partners.map((p) => <option key={p.user_id} value={p.user_id}>{p.name}</option>)}
+                      </select>
+                    ) : (
+                      <span className="text-xs text-slate-600">{lead.assigned_partner_name || "—"}</span>
+                    )}
+                    {lead.assigned_partner_id && lead.assigned_by && (
+                      <p data-testid={`assign-history-m-${lead.lead_id}`} className="text-[10px] text-slate-400 mt-1">
+                        by {lead.assigned_by}{lead.assigned_at ? ` · ${fmtShort(lead.assigned_at)}` : ""}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
           <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-sm">
             <span className="text-slate-500" data-testid="leads-count-label">
