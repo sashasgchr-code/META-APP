@@ -306,6 +306,44 @@ async def staff_emails() -> list:
     return [u["email"] for u in users if u.get("email")]
 
 
+async def processor_emails() -> list:
+    users = await db.users.find({"role": "processor", "approved": True, "deleted": {"$ne": True}}, {"_id": 0, "email": 1}).to_list(200)
+    return [u["email"] for u in users if u.get("email")]
+
+
+def _basic_email(heading, body, url, label, color="#0F52BA"):
+    return (f'<table role="presentation" width="100%"><tr><td style="padding:24px;font-family:Arial,sans-serif;color:#0f172a">'
+            f'<h2 style="color:{color};margin:0 0 12px">{heading}</h2>{body}'
+            f'<p><a href="{escape(url)}" style="background:#0F52BA;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;display:inline-block">{label}</a></p>'
+            f'<p style="font-size:12px;color:#888;margin-top:24px">Sent by {escape(EMAIL_FROM_NAME)}. We never ask for your password or card details by email.</p>'
+            f'</td></tr></table>')
+
+
+async def notify_processors_new_file(lead: dict, actor_name: str):
+    if not EMAIL_KEY:
+        return
+    url = f"{APP_BASE_URL}/leads/{lead['lead_id']}"
+    body = f'<p>A new loan file was opened for <strong>{escape(lead.get("full_name") or "a lead")}</strong> by {escape(actor_name)}. Please pick it up for processing.</p>'
+    html = _basic_email("New File to Process", body, url, "Open file in BankEzee CRM", "#7c3aed")
+    for to in await processor_emails():
+        await _send_safe(to, f"New File to process: {lead.get('full_name') or 'Lead'}", html)
+
+
+async def notify_file_update(lead: dict, actor_name: str, detail: str):
+    if not EMAIL_KEY:
+        return
+    recips = set(await staff_emails())
+    if lead.get("assigned_partner_id"):
+        p = await db.users.find_one({"user_id": lead["assigned_partner_id"]}, {"_id": 0, "email": 1})
+        if p and p.get("email"):
+            recips.add(p["email"])
+    url = f"{APP_BASE_URL}/leads/{lead['lead_id']}"
+    body = f'<p>{escape(actor_name)} updated the file for <strong>{escape(lead.get("full_name") or "a lead")}</strong>:</p><p style="font-size:15px"><strong>{escape(detail)}</strong></p>'
+    html = _basic_email("File Update", body, url, "View file in BankEzee CRM")
+    for to in recips:
+        await _send_safe(to, f"File update: {lead.get('full_name') or 'Lead'}", html)
+
+
 async def _send_safe(to: str, subject: str, html: str):
     try:
         await send_email(to=to, subject=subject, html=html)
@@ -636,6 +674,7 @@ async def update_status(lead_id: str, inp: LeadUpdate, user: dict = Depends(get_
     updated = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
     if inp.status == "FILE" and lead.get("status") != "FILE":
         asyncio.create_task(notify_staff_converted(updated, user["name"]))
+        asyncio.create_task(notify_processors_new_file(updated, user["name"]))
     return updated
 
 @api_router.patch("/leads/{lead_id}/assign")
@@ -707,6 +746,7 @@ async def log_call(lead_id: str, inp: CallLogInput, user: dict = Depends(get_cur
     updated = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
     if inp.disposition == "FILE":
         asyncio.create_task(notify_staff_converted(updated, user["name"]))
+        asyncio.create_task(notify_processors_new_file(updated, user["name"]))
     return updated
 
 
@@ -718,7 +758,10 @@ async def save_file(lead_id: str, inp: FileInput, user: dict = Depends(require_s
     activity = {"type": "file", "detail": f"{user['name']} updated file details", "at": now_iso()}
     await db.leads.update_one({"lead_id": lead_id}, {"$set": {"file": inp.data, "updated_at": now_iso()},
                               "$push": {"activities": activity}})
-    return await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    updated = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if user.get("role") == "processor":
+        asyncio.create_task(notify_file_update(updated, user["name"], "File details updated"))
+    return updated
 
 
 ALLOWED_DOC_TYPES = {"application/pdf", "image/png", "image/jpeg", "image/jpg"}
@@ -951,7 +994,10 @@ async def update_processing_status(lead_id: str, inp: ProcStatusInput, user: dic
         raise HTTPException(status_code=404, detail="Lead not found")
     await db.leads.update_one({"lead_id": lead_id}, {"$set": {"processing_status": inp.status, "updated_at": now_iso()},
         "$push": {"activities": {"type": "processing", "detail": f"Processing status set to '{inp.status}' by {user['name']}", "at": now_iso()}}})
-    return await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    updated = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if user.get("role") == "processor":
+        asyncio.create_task(notify_file_update(updated, user["name"], f"Processing status → {inp.status}"))
+    return updated
 
 
 @api_router.get("/files/report")
