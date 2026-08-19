@@ -19,6 +19,11 @@ A copy of BankEzee CRM where leads auto-import from a Google Sheet (with extra f
 - PRODUCTION: https://meta.bankezee.com (redeploy needed to push preview changes)
 
 ## Implemented (latest first)
+- 2026-06: **Growth-partner FILE flow** — setting status to FILE via the status buttons now prompts "Documents received? yes/no" (FileStatusModal) and stores `docs_received`; assigned growth partners can view/upload/download/delete documents on their FILE leads.
+- 2026-06: **Processor visibility fix** — `list_leads`, `files/stats`, `files/report`, and single-lead GET now branch on role==processor → `assigned_processor_id`, so processors see their files in Files/Leads/File Reports and can open the lead detail.
+- 2026-06: **Partner→Processor mapping** — admin/ops set a default processor per growth partner (User Management "Default Processor" column, `PATCH /users/{id}/default-processor`). When that partner's lead becomes a FILE, the mapped processor is auto-assigned (if none set); admin/ops can still change it manually. Auto-assign runs on both status-button and call-modal FILE paths.
+- 2026-06: **Dashboard "In Progress" fix** — now file-based (`lead_stats.files_in_progress` = FILE leads with no bank disbursed); increments when made FILE, drops to 0 when reversed out of FILE. Previously counted CALL_BACK+LEAD.
+- 2026-06: **Admin Reset ("Reset to fresh")** — Danger Zone in User Management + `POST /admin/reset-data`.
 - 2026-06: **Mobile card view** for Leads (stacked cards <md, desktop table ≥md).
 - 2026-06: **Assignment History** — assign/bulk-assign store `assigned_by`/`assigned_at`; shown as "by <name> · <date>" on each lead row/card.
 - 2026-06: **Date Range Filter** on Leads — presets (All/Today/Last 7/Last 30) + custom from/to; backend `GET /api/leads?from_date&to_date` filters on `created_time`.

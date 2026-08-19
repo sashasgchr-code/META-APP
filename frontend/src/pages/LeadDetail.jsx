@@ -102,8 +102,39 @@ function CallModal({ phone, onClose, onSubmit }) {
   );
 }
 
-const F = ({ label, value, onChange, type = "text", placeholder, disabled }) => (
-  <div>
+function FileStatusModal({ onClose, onConfirm }) {
+  const [docs, setDocs] = useState("");
+  const [saving, setSaving] = useState(false);
+  const submit = async () => {
+    if (!docs) { toast.error("Please select whether documents are received"); return; }
+    setSaving(true);
+    try { await onConfirm(docs === "yes"); } catch (e) { toast.error(e?.response?.data?.detail || "Failed"); } finally { setSaving(false); }
+  };
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()} data-testid="file-status-modal">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="h-10 w-10 rounded-full bg-violet-50 text-violet-600 flex items-center justify-center"><FolderOpen size={20} /></div>
+          <div><p className="text-sm font-semibold text-brand-dark">Convert to File</p><p className="text-xs text-slate-500">Confirm document status</p></div>
+        </div>
+        <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">Documents Received?</label>
+        <select data-testid="file-docs-select" value={docs} onChange={(e) => setDocs(e.target.value)}
+          className="mt-1 mb-4 w-full border border-slate-300 rounded-md px-3 py-2 text-sm bg-white outline-none focus:border-brand">
+          <option value="">Select...</option>
+          <option value="yes">Yes</option>
+          <option value="no">No</option>
+        </select>
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-md px-4 py-2 text-sm font-medium transition-colors">Cancel</button>
+          <button data-testid="file-status-confirm-btn" disabled={saving} onClick={submit}
+            className="bg-brand text-white hover:bg-brand/90 rounded-md px-4 py-2 text-sm font-medium transition-colors disabled:opacity-60">Convert to File</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const F = ({ label, value, onChange, type = "text", placeholder, disabled }) => (  <div>
     <label className="text-xs font-medium text-slate-500">{label}</label>
     <input type={type} value={value || ""} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} disabled={disabled}
       className="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 text-sm outline-none focus:border-brand disabled:bg-slate-50 disabled:text-slate-500" />
@@ -360,6 +391,7 @@ export default function LeadDetail() {
   const [processors, setProcessors] = useState([]);
   const [note, setNote] = useState("");
   const [callOpen, setCallOpen] = useState(false);
+  const [fileModal, setFileModal] = useState(false);
   const isStaffLike = ["admin", "ops", "processor"].includes(user?.role);
 
   const load = async () => {
@@ -371,7 +403,7 @@ export default function LeadDetail() {
   useEffect(() => { if (isStaffLike) api.get("/processors").then(({ data }) => setProcessors(data)).catch(() => {}); }, [isStaffLike]);
   const assignProcessor = async (pid) => { const { data } = await api.patch(`/leads/${leadId}/processor`, { processor_id: pid || null }); setLead(data); toast.success("Processor updated"); };
 
-  const changeStatus = async (status) => { const { data } = await api.patch(`/leads/${leadId}/status`, { status }); setLead(data); toast.success(`Status → ${STATUS_LABEL(status)}`); };
+  const changeStatus = async (status, docs_received) => { const { data } = await api.patch(`/leads/${leadId}/status`, { status, docs_received }); setLead(data); toast.success(`Status → ${STATUS_LABEL(status)}`); };
   const assign = async (pid) => { const { data } = await api.patch(`/leads/${leadId}/assign`, { partner_id: pid || null }); setLead(data); toast.success("Assignment updated"); };
   const addNote = async () => { if (!note.trim()) return; const { data } = await api.post(`/leads/${leadId}/notes`, { text: note }); setLead(data); setNote(""); toast.success("Note added"); };
   const logCall = async (payload) => { const { data } = await api.post(`/leads/${leadId}/calls`, payload); setLead(data); toast.success("Call logged"); };
@@ -418,7 +450,7 @@ export default function LeadDetail() {
             <h3 className="text-sm font-semibold text-brand-dark mb-3">Status</h3>
             <div className="flex flex-wrap gap-1.5 mb-4">
               {STATUSES.map((s) => (
-                <button key={s} data-testid={`set-status-${s}`} onClick={() => changeStatus(s)}
+                <button key={s} data-testid={`set-status-${s}`} onClick={() => { if (s === "FILE" && lead.status !== "FILE") setFileModal(true); else changeStatus(s); }}
                   className={`px-2.5 py-1.5 rounded-md text-xs font-medium border transition-colors ${lead.status === s ? "bg-brand text-white border-brand" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}>{STATUS_LABEL(s)}</button>
               ))}
             </div>
@@ -465,7 +497,7 @@ export default function LeadDetail() {
 
         <div className="lg:col-span-2 space-y-6">
           {lead.status === "FILE" && <FileCard key={lead.updated_at} lead={lead} onSave={saveFile} canEdit={user?.role === "admin" || user?.role === "ops"} canStatus={isStaffLike} onUpdateStatus={updateProcessingStatus} />}
-          {lead.status === "FILE" && (user?.role === "admin" || user?.role === "ops") && <DocumentsCard lead={lead} reload={load} />}
+          {lead.status === "FILE" && (user?.role === "admin" || user?.role === "ops" || (user?.role === "growth_partner" && lead.assigned_partner_id === user?.user_id) || (user?.role === "processor" && lead.assigned_processor_id === user?.user_id)) && <DocumentsCard lead={lead} reload={load} />}
 
           <div className="bg-white border border-slate-200 rounded-md p-5 shadow-sm">
             <h3 className="text-sm font-semibold text-brand-dark mb-3 flex items-center gap-2"><MessageSquare size={16} /> Notes</h3>
@@ -502,6 +534,7 @@ export default function LeadDetail() {
       </div>
 
       {callOpen && <CallModal phone={lead.phone} onClose={() => setCallOpen(false)} onSubmit={logCall} />}
+      {fileModal && <FileStatusModal onClose={() => setFileModal(false)} onConfirm={async (docs) => { await changeStatus("FILE", docs); setFileModal(false); }} />}
     </div>
   );
 }

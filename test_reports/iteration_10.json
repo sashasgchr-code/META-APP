@@ -1,0 +1,22 @@
+{
+  "summary": "Iteration 10 backend + frontend testing for FILE status via status button with docs_received, processor role visibility (Leads/Files/File Reports/lead detail), Admin/Ops default-processor mapping with auto-assign, and Dashboard files_in_progress toggle. Wrote /app/backend/tests/test_iter10_processor_files.py with 13 tests — all 13 PASSED. Frontend Playwright validated: FileStatusModal + docs select + confirm button flow (growth partner sasha@neosales.org), DocumentsCard visible to partner and processor after FILE, User Management 'Default Processor' select (default-processor-<partnerId>) saves mapping, processor teja@bankezee.com sees the assigned FILE on /files, /leads?status=FILE (2 files), /file-reports and can open the lead detail (previously 403 -> now 200). Dashboard shows Files=2, In Progress=2; backend confirmed files_in_progress increments on FILE and decrements on reverse to LEAD.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter10_processor_files.py",
+    "/app/test_reports/pytest/iter10_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is 1365 lines — consider splitting into routers (leads, files, users, processors, documents) for maintainability.",
+    "auto_assign_processor only checks default_processor_id on the partner user; if the partner is deleted/inactive the mapping is silently skipped — acceptable but consider logging.",
+    "/files/report returns aggregated stats only; if UI ever needs per-file drilldown for processors, add a paged endpoint (currently OK via /leads?status=FILE)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter10_processor_files.py"],
+  "success_rate": {"backend": "100% (13/13)", "frontend": "100% (4/4 flows)"},
+  "test_credentials": "Admin sasha.sgchr@gmail.com / Admin@123456; Ops rama.saffronglobal@gmail.com / Ops@123456; Processor teja@bankezee.com / Processor@123 & saikiran@bankezee.com / Processor@123; Growth Partner sasha@neosales.org / Sas12sa!!",
+  "seed_data_creation": "Reused existing partner leads for Sasha lucas; tests toggle a single lead between LEAD<->FILE. Default-processor mapping for Sasha lucas -> Teja is set at end of run.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter10 all green. Backend uses session_token (not access_token) in /auth/login response. ProcStatusInput expects {status: <string>} not processing_status. /files/report returns {overall, this_month} aggregates (no per-lead items) — that's by design. Default-processor testids: data-testid=default-processor-<partnerUserId> in User Management. FILE modal testids: file-status-modal, file-docs-select, file-status-confirm-btn. Documents card testids: documents-card, documents-list, upload-docs-input. Status buttons: set-status-<STATUS> (e.g., set-status-FILE, set-status-LEAD)."
+}

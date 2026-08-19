@@ -20,6 +20,18 @@ export default function UserManagement() {
   const [busyId, setBusyId] = useState(null);
   const [showDeleted, setShowDeleted] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [processors, setProcessors] = useState([]);
+
+  useEffect(() => { api.get("/processors").then(({ data }) => setProcessors(data)).catch(() => {}); }, []);
+
+  const setDefaultProcessor = async (u, processor_id) => {
+    setBusyId(u.user_id);
+    try {
+      await api.patch(`/users/${u.user_id}/default-processor`, { processor_id: processor_id || null });
+      toast.success(`Default processor updated for ${u.name}`);
+      load();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Failed to update"); } finally { setBusyId(null); }
+  };
 
   const resetData = async () => {
     if (!window.confirm("Reset the app to a fresh state?\n\nThis will set EVERY lead back to NEW, unassign all leads, and delete all FILE data, uploaded documents and call logs. Leads themselves are kept. This cannot be undone.")) return;
@@ -99,14 +111,14 @@ export default function UserManagement() {
             <table className="w-full border-collapse">
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-200">
-                  {["User", "Role", "User ID", "Password", "Status", "Actions"].map((h) => (
+                  {["User", "Role", "User ID", "Password", "Status", "Default Processor", "Actions"].map((h) => (
                     <th key={h} className="text-xs font-semibold uppercase tracking-wider text-slate-500 py-3 px-3 text-left">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody data-testid="users-table-body">
                 {loading ? (
-                  <tr><td colSpan={6} className="py-16 text-center text-slate-400 text-sm">Loading users...</td></tr>
+                  <tr><td colSpan={7} className="py-16 text-center text-slate-400 text-sm">Loading users...</td></tr>
                 ) : users.map((u) => (
                   <tr key={u.user_id} data-testid={`user-row-${u.user_id}`} className="border-b border-slate-100 hover:bg-slate-50/60 transition-colors">
                     <td className="py-2.5 px-3">
@@ -133,6 +145,16 @@ export default function UserManagement() {
                         u.approved
                           ? <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700"><Check size={13} /> Approved</span>
                           : <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700"><Clock size={13} /> Pending</span>
+                      ) : <span className="text-xs text-slate-400">—</span>}
+                    </td>
+                    <td className="py-2.5 px-3">
+                      {u.role === "growth_partner" ? (
+                        <select data-testid={`default-processor-${u.user_id}`} value={u.default_processor_id || ""}
+                          disabled={busyId === u.user_id} onChange={(e) => setDefaultProcessor(u, e.target.value)}
+                          className="border border-slate-200 rounded-md px-2 py-1 text-xs bg-white outline-none focus:border-brand max-w-[150px]">
+                          <option value="">None</option>
+                          {processors.map((p) => <option key={p.user_id} value={p.user_id}>{p.name}</option>)}
+                        </select>
                       ) : <span className="text-xs text-slate-400">—</span>}
                     </td>
                     <td className="py-2.5 px-3">

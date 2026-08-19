@@ -96,7 +96,7 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           <MetricCard label="Total Leads" value={stats.total} icon={Users2} accent="bg-blue-50 text-brand" delay={0} />
           <MetricCard label="Files" value={stats.by_status.FILE} icon={TrendingUp} accent="bg-violet-50 text-violet-600" delay={60} />
-          <MetricCard label="In Progress" value={stats.by_status.CALL_BACK + stats.by_status.LEAD} icon={UserCheck} accent="bg-amber-50 text-amber-600" delay={120} />
+          <MetricCard label="In Progress" value={stats.files_in_progress ?? 0} icon={UserCheck} accent="bg-amber-50 text-amber-600" delay={120} />
           {user?.role === "admin" && <MetricCard label="Unassigned" value={stats.unassigned} icon={Users2} accent="bg-slate-100 text-slate-600" delay={180} />}
         </div>
 

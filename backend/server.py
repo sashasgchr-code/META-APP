@@ -92,6 +92,10 @@ class User(BaseModel):
 
 class LeadUpdate(BaseModel):
     status: Optional[str] = None
+    docs_received: Optional[bool] = None
+
+class DefaultProcessorInput(BaseModel):
+    processor_id: Optional[str] = None
 
 class AssignInput(BaseModel):
     partner_id: Optional[str] = None
@@ -327,6 +331,23 @@ async def notify_processors_new_file(lead: dict, actor_name: str):
     html = _basic_email("New File to Process", body, url, "Open file in BankEzee CRM", "#7c3aed")
     for to in await processor_emails():
         await _send_safe(to, f"New File to process: {lead.get('full_name') or 'Lead'}", html)
+
+
+async def auto_assign_processor(lead_id: str):
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0, "lead_id": 1, "assigned_partner_id": 1, "assigned_processor_id": 1})
+    if not lead or lead.get("assigned_processor_id") or not lead.get("assigned_partner_id"):
+        return None
+    partner = await db.users.find_one({"user_id": lead["assigned_partner_id"]}, {"_id": 0, "default_processor_id": 1})
+    if not partner or not partner.get("default_processor_id"):
+        return None
+    proc = await db.users.find_one({"user_id": partner["default_processor_id"], "role": "processor", "deleted": {"$ne": True}},
+                                   {"_id": 0, "user_id": 1, "name": 1})
+    if not proc:
+        return None
+    await db.leads.update_one({"lead_id": lead_id}, {"$set": {"assigned_processor_id": proc["user_id"],
+        "assigned_processor_name": proc["name"], "updated_at": now_iso()},
+        "$push": {"activities": {"type": "processor", "detail": f"Auto-assigned to processor {proc['name']} (mapped to growth partner)", "at": now_iso()}}})
+    return proc
 
 
 async def notify_file_update(lead: dict, actor_name: str, detail: str):
@@ -594,7 +615,9 @@ async def list_leads(request: Request, status: Optional[str] = None, q: Optional
                      from_date: Optional[str] = None, to_date: Optional[str] = None,
                      user: dict = Depends(get_current_user)):
     query = {"deleted": {"$ne": True}}
-    if user.get("role") not in STAFF_ROLES:
+    if user.get("role") == "processor":
+        query["assigned_processor_id"] = user["user_id"]
+    elif user.get("role") not in STAFF_ROLES:
         query["assigned_partner_id"] = user["user_id"]
     if status and status != "ALL":
         query["status"] = status
@@ -649,6 +672,12 @@ async def lead_stats(user: dict = Depends(get_current_user), from_date: Optional
     for s in CRM_STATUSES:
         by_status[s] = await db.leads.count_documents({**match, "status": s})
     unassigned = await db.leads.count_documents({**match, "assigned_partner_id": None})
+    file_docs = await db.leads.find({**match, "status": "FILE"}, {"_id": 0, "file": 1}).to_list(10000)
+    files_in_progress = 0
+    for fdoc in file_docs:
+        banks = (fdoc.get("file") or {}).get("banks", [])
+        if not any(b.get("disbursed") == "Yes" for b in banks):
+            files_in_progress += 1
     last_sync = await db.meta.find_one({"key": "last_sync"}, {"_id": 0})
     # leads per city top 5
     pipeline = [{"$match": match}, {"$group": {"_id": "$city", "count": {"$sum": 1}}},
@@ -657,6 +686,7 @@ async def lead_stats(user: dict = Depends(get_current_user), from_date: Optional
     rate = await get_commission_rate()
     earnings = by_status["FILE"] * rate
     return {"total": total, "by_status": by_status, "unassigned": unassigned,
+            "files_in_progress": files_in_progress,
             "last_sync": last_sync, "by_city": by_city,
             "commission_rate": rate, "earnings": earnings}
 
@@ -665,8 +695,12 @@ async def get_lead(lead_id: str, user: dict = Depends(get_current_user)):
     lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
-    if user.get("role") not in STAFF_ROLES and lead.get("assigned_partner_id") != user["user_id"]:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    role = user.get("role")
+    if role not in STAFF_ROLES:
+        if role == "processor" and lead.get("assigned_processor_id") == user["user_id"]:
+            pass
+        elif lead.get("assigned_partner_id") != user["user_id"]:
+            raise HTTPException(status_code=403, detail="Not authorized")
     return lead
 
 @api_router.patch("/leads/{lead_id}/status")
@@ -682,8 +716,12 @@ async def update_status(lead_id: str, inp: LeadUpdate, user: dict = Depends(get_
     set_status = {"status": inp.status, "updated_at": now_iso()}
     if inp.status == "FILE" and not lead.get("file_created_at"):
         set_status["file_created_at"] = now_iso()
+    if inp.status == "FILE" and inp.docs_received is not None:
+        set_status["docs_received"] = inp.docs_received
     await db.leads.update_one({"lead_id": lead_id}, {"$set": set_status,
                               "$push": {"activities": activity}})
+    if inp.status == "FILE" and lead.get("status") != "FILE":
+        await auto_assign_processor(lead_id)
     updated = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
     if inp.status == "FILE" and lead.get("status") != "FILE":
         asyncio.create_task(notify_staff_converted(updated, user["name"]))
@@ -758,6 +796,8 @@ async def log_call(lead_id: str, inp: CallLogInput, user: dict = Depends(get_cur
         set_fields["file"] = {}
     await db.leads.update_one({"lead_id": lead_id}, {"$set": set_fields,
         "$push": {"call_logs": call, "activities": {"type": "call", "detail": detail, "at": now_iso()}}})
+    if inp.disposition == "FILE" and lead.get("status") != "FILE":
+        await auto_assign_processor(lead_id)
     updated = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
     if inp.disposition == "FILE":
         asyncio.create_task(notify_staff_converted(updated, user["name"]))
@@ -783,11 +823,23 @@ ALLOWED_DOC_TYPES = {"application/pdf", "image/png", "image/jpeg", "image/jpg"}
 MAX_DOC_BYTES = 10 * 1024 * 1024
 
 
-@api_router.post("/leads/{lead_id}/documents")
-async def upload_document(lead_id: str, file: UploadFile = File(...), user: dict = Depends(require_staff)):
-    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0, "lead_id": 1})
+async def lead_for_docs(lead_id: str, user: dict, projection: dict) -> dict:
+    lead = await db.leads.find_one({"lead_id": lead_id}, projection)
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
+    role = user.get("role")
+    if role in STAFF_ROLES:
+        return lead
+    if role == "growth_partner" and lead.get("assigned_partner_id") == user["user_id"]:
+        return lead
+    if role == "processor" and lead.get("assigned_processor_id") == user["user_id"]:
+        return lead
+    raise HTTPException(status_code=403, detail="Not authorized")
+
+
+@api_router.post("/leads/{lead_id}/documents")
+async def upload_document(lead_id: str, file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    await lead_for_docs(lead_id, user, {"_id": 0, "lead_id": 1, "assigned_partner_id": 1, "assigned_processor_id": 1})
     ctype = (file.content_type or "").lower()
     if ctype not in ALLOWED_DOC_TYPES:
         raise HTTPException(status_code=400, detail="Only PDF, PNG and JPG files are allowed")
@@ -802,10 +854,8 @@ async def upload_document(lead_id: str, file: UploadFile = File(...), user: dict
 
 
 @api_router.get("/leads/{lead_id}/documents/zip")
-async def download_documents_zip(lead_id: str, user: dict = Depends(require_staff)):
-    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0, "documents": 1, "full_name": 1})
-    if not lead:
-        raise HTTPException(status_code=404, detail="Lead not found")
+async def download_documents_zip(lead_id: str, user: dict = Depends(get_current_user)):
+    lead = await lead_for_docs(lead_id, user, {"_id": 0, "documents": 1, "full_name": 1, "assigned_partner_id": 1, "assigned_processor_id": 1})
     docs = lead.get("documents", [])
     if not docs:
         raise HTTPException(status_code=404, detail="No documents to download")
@@ -831,7 +881,8 @@ async def download_documents_zip(lead_id: str, user: dict = Depends(require_staf
 
 
 @api_router.get("/leads/{lead_id}/documents/{doc_id}")
-async def download_document(lead_id: str, doc_id: str, user: dict = Depends(require_staff)):
+async def download_document(lead_id: str, doc_id: str, user: dict = Depends(get_current_user)):
+    await lead_for_docs(lead_id, user, {"_id": 0, "lead_id": 1, "assigned_partner_id": 1, "assigned_processor_id": 1})
     try:
         stream = await fs_bucket.open_download_stream(ObjectId(doc_id))
     except Exception:
@@ -843,7 +894,8 @@ async def download_document(lead_id: str, doc_id: str, user: dict = Depends(requ
 
 
 @api_router.delete("/leads/{lead_id}/documents/{doc_id}")
-async def delete_document(lead_id: str, doc_id: str, user: dict = Depends(require_staff)):
+async def delete_document(lead_id: str, doc_id: str, user: dict = Depends(get_current_user)):
+    await lead_for_docs(lead_id, user, {"_id": 0, "lead_id": 1, "assigned_partner_id": 1, "assigned_processor_id": 1})
     try:
         await fs_bucket.delete(ObjectId(doc_id))
     except Exception:
@@ -855,7 +907,9 @@ async def delete_document(lead_id: str, doc_id: str, user: dict = Depends(requir
 @api_router.get("/files/stats")
 async def files_stats(user: dict = Depends(get_current_user)):
     match = {"deleted": {"$ne": True}}
-    if user.get("role") not in STAFF_ROLES:
+    if user.get("role") == "processor":
+        match["assigned_processor_id"] = user["user_id"]
+    elif user.get("role") not in STAFF_ROLES:
         match["assigned_partner_id"] = user["user_id"]
     file_match = {**match, "status": "FILE"}
     total_files = await db.leads.count_documents(file_match)
@@ -971,6 +1025,22 @@ async def list_processors(user: dict = Depends(get_current_user)):
     procs = await db.users.find({"role": "processor", "approved": True, "deleted": {"$ne": True}},
                                 {"_id": 0, "user_id": 1, "name": 1, "email": 1}).to_list(500)
     return procs
+
+
+@api_router.patch("/users/{user_id}/default-processor")
+async def set_default_processor(user_id: str, inp: DefaultProcessorInput, user: dict = Depends(require_staff)):
+    partner = await db.users.find_one({"user_id": user_id, "role": "growth_partner"}, {"_id": 0, "user_id": 1})
+    if not partner:
+        raise HTTPException(status_code=404, detail="Growth partner not found")
+    pname = None
+    if inp.processor_id:
+        proc = await db.users.find_one({"user_id": inp.processor_id, "role": "processor", "deleted": {"$ne": True}}, {"_id": 0, "name": 1})
+        if not proc:
+            raise HTTPException(status_code=404, detail="Processor not found")
+        pname = proc["name"]
+    await db.users.update_one({"user_id": user_id}, {"$set": {"default_processor_id": inp.processor_id,
+                              "default_processor_name": pname}})
+    return {"ok": True, "default_processor_id": inp.processor_id, "default_processor_name": pname}
 
 
 @api_router.get("/processors/workload")
