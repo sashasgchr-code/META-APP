@@ -159,13 +159,15 @@ const Section = ({ title, children }) => (
   </div>
 );
 
-function FileCard({ lead, onSave, canEdit, canStatus, onUpdateStatus }) {
+function FileCard({ lead, onSave, canEditInfo, canEditBanks, canStatus, onUpdateStatus }) {
   const [f, setF] = useState(lead.file || {});
   const [banks, setBanks] = useState(lead.file?.banks || []);
   const [saving, setSaving] = useState(false);
   const [pstatus, setPstatus] = useState(lead.processing_status || "");
   const [updatingStatus, setUpdatingStatus] = useState(false);
-  const d = !canEdit;
+  const d = !canEditInfo;
+  const bd = !canEditBanks;
+  const canSave = canEditInfo || canEditBanks;
   const set = (k) => (v) => setF({ ...f, [k]: v });
   const setBank = (i, k, v) => {
     const b = [...banks]; b[i] = { ...b[i], [k]: v };
@@ -186,7 +188,7 @@ function FileCard({ lead, onSave, canEdit, canStatus, onUpdateStatus }) {
     <div className="bg-white border border-violet-200 rounded-md p-5 shadow-sm" data-testid="file-card">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-semibold text-violet-700 flex items-center gap-2"><FolderOpen size={16} /> Loan File Details</h3>
-        {canEdit
+        {canSave
           ? <button data-testid="save-file-btn" onClick={save} disabled={saving}
               className="bg-brand text-white hover:bg-brand/90 rounded-md px-3 py-1.5 text-sm font-medium transition-colors flex items-center gap-1 disabled:opacity-60"><Save size={14} /> Save</button>
           : <span className="text-xs text-slate-400 italic">View only</span>}
@@ -231,56 +233,56 @@ function FileCard({ lead, onSave, canEdit, canStatus, onUpdateStatus }) {
       </div>
       <div className="flex items-center justify-between mb-2">
         <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Bank Eligibilities ({banks.length})</p>
-        {canEdit && <button data-testid="add-bank-btn" onClick={() => setBanks([...banks, {}])} className="text-xs text-brand hover:underline flex items-center gap-1"><Plus size={12} /> Add Bank</button>}
+        {canEditBanks && <button data-testid="add-bank-btn" onClick={() => setBanks([...banks, {}])} className="text-xs text-brand hover:underline flex items-center gap-1"><Plus size={12} /> Add Bank</button>}
       </div>
       <div className="space-y-4">
         {banks.map((b, i) => (
           <div key={i} className="border border-slate-200 rounded-md p-3 relative" data-testid={`bank-row-${i}`}>
-            {canEdit && <button onClick={() => setBanks(banks.filter((_, j) => j !== i))} className="absolute top-2 right-2 text-red-400 hover:text-red-600"><Trash2 size={14} /></button>}
+            {canEditBanks && <button onClick={() => setBanks(banks.filter((_, j) => j !== i))} className="absolute top-2 right-2 text-red-400 hover:text-red-600"><Trash2 size={14} /></button>}
             <p className="text-xs font-semibold text-emerald-700 mb-2">Bank #{i + 1}</p>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <F label="Bank Name" value={b.bank_name} onChange={(v) => setBank(i, "bank_name", v)} disabled={d} />
-              <Sel label="Eligible?" value={b.eligible} onChange={(v) => setBank(i, "eligible", v)} options={["Yes", "No"]} disabled={d} />
-              {b.eligible === "No" && <F label="Reason (Not Eligible)" value={b.ineligible_reason} onChange={(v) => setBank(i, "ineligible_reason", v)} disabled={d} />}
+              <F label="Bank Name" value={b.bank_name} onChange={(v) => setBank(i, "bank_name", v)} disabled={bd} />
+              <Sel label="Eligible?" value={b.eligible} onChange={(v) => setBank(i, "eligible", v)} options={["Yes", "No"]} disabled={bd} />
+              {b.eligible === "No" && <F label="Reason (Not Eligible)" value={b.ineligible_reason} onChange={(v) => setBank(i, "ineligible_reason", v)} disabled={bd} />}
               {b.eligible === "Yes" && <>
-                <F label="Eligible Amount (₹)" value={b.eligible_amount} onChange={(v) => setBank(i, "eligible_amount", v)} type="number" disabled={d} />
-                <F label="ROI (%)" value={b.roi} onChange={(v) => setBank(i, "roi", v)} type="number" disabled={d} />
+                <F label="Eligible Amount (₹)" value={b.eligible_amount} onChange={(v) => setBank(i, "eligible_amount", v)} type="number" disabled={bd} />
+                <F label="ROI (%)" value={b.roi} onChange={(v) => setBank(i, "roi", v)} type="number" disabled={bd} />
               </>}
             </div>
 
             {b.eligible === "Yes" && (
               <Section title="Login Status">
-                <Sel label="Login Done?" value={b.login_done} onChange={(v) => setBank(i, "login_done", v)} options={["Yes", "No"]} disabled={d} />
-                {b.login_done === "No" && <F label="Reason (No Login)" value={b.login_reason} onChange={(v) => setBank(i, "login_reason", v)} disabled={d} />}
+                <Sel label="Login Done?" value={b.login_done} onChange={(v) => setBank(i, "login_done", v)} options={["Yes", "No"]} disabled={bd} />
+                {b.login_done === "No" && <F label="Reason (No Login)" value={b.login_reason} onChange={(v) => setBank(i, "login_reason", v)} disabled={bd} />}
                 {b.login_done === "Yes" && <>
-                  <F label="Login Bank" value={b.login_bank} onChange={(v) => setBank(i, "login_bank", v)} disabled={d} />
-                  <F label="Application ID" value={b.application_id} onChange={(v) => setBank(i, "application_id", v)} disabled={d} />
-                  <F label="SM Name" value={b.sm_name} onChange={(v) => setBank(i, "sm_name", v)} disabled={d} />
-                  <F label="SM Number" value={b.sm_number} onChange={(v) => setBank(i, "sm_number", v)} disabled={d} />
+                  <F label="Login Bank" value={b.login_bank} onChange={(v) => setBank(i, "login_bank", v)} disabled={bd} />
+                  <F label="Application ID" value={b.application_id} onChange={(v) => setBank(i, "application_id", v)} disabled={bd} />
+                  <F label="SM Name" value={b.sm_name} onChange={(v) => setBank(i, "sm_name", v)} disabled={bd} />
+                  <F label="SM Number" value={b.sm_number} onChange={(v) => setBank(i, "sm_number", v)} disabled={bd} />
                 </>}
               </Section>
             )}
 
             {b.eligible === "Yes" && b.login_done === "Yes" && (
               <Section title="Approval Status">
-                <Sel label="Status" value={b.approval_status} onChange={(v) => setBank(i, "approval_status", v)} options={["Pending", "Approved", "Rejected"]} disabled={d} />
+                <Sel label="Status" value={b.approval_status} onChange={(v) => setBank(i, "approval_status", v)} options={["Pending", "Approved", "Rejected"]} disabled={bd} />
                 {b.approval_status === "Approved" && <>
-                  <F label="Approved Bank" value={b.approved_bank} onChange={(v) => setBank(i, "approved_bank", v)} disabled={d} />
-                  <F label="Approved Amount (₹)" value={b.approved_amount} onChange={(v) => setBank(i, "approved_amount", v)} type="number" disabled={d} />
-                  <F label="Tenure (months)" value={b.approval_tenure} onChange={(v) => setBank(i, "approval_tenure", v)} type="number" disabled={d} />
-                  <F label="ROI (%)" value={b.approval_roi} onChange={(v) => setBank(i, "approval_roi", v)} type="number" disabled={d} />
+                  <F label="Approved Bank" value={b.approved_bank} onChange={(v) => setBank(i, "approved_bank", v)} disabled={bd} />
+                  <F label="Approved Amount (₹)" value={b.approved_amount} onChange={(v) => setBank(i, "approved_amount", v)} type="number" disabled={bd} />
+                  <F label="Tenure (months)" value={b.approval_tenure} onChange={(v) => setBank(i, "approval_tenure", v)} type="number" disabled={bd} />
+                  <F label="ROI (%)" value={b.approval_roi} onChange={(v) => setBank(i, "approval_roi", v)} type="number" disabled={bd} />
                 </>}
               </Section>
             )}
 
             {b.approval_status === "Approved" && (
               <Section title="Disbursement">
-                <Sel label="Disbursed?" value={b.disbursed} onChange={(v) => setBank(i, "disbursed", v)} options={["Yes", "No"]} disabled={d} />
+                <Sel label="Disbursed?" value={b.disbursed} onChange={(v) => setBank(i, "disbursed", v)} options={["Yes", "No"]} disabled={bd} />
                 {b.disbursed === "Yes" && <>
-                  <F label="Disbursal Date" value={b.disbursal_date} onChange={(v) => setBank(i, "disbursal_date", v)} type="date" disabled={d} />
-                  <F label="Disbursed Bank" value={b.disbursed_bank} onChange={(v) => setBank(i, "disbursed_bank", v)} disabled={d} />
-                  <F label="Disbursed Amount (₹)" value={b.disbursed_amount} onChange={(v) => setBank(i, "disbursed_amount", v)} type="number" disabled={d} />
-                  <F label="Commission %" value={b.commission_pct} onChange={(v) => setBank(i, "commission_pct", v)} type="number" disabled={d} />
+                  <F label="Disbursal Date" value={b.disbursal_date} onChange={(v) => setBank(i, "disbursal_date", v)} type="date" disabled={bd} />
+                  <F label="Disbursed Bank" value={b.disbursed_bank} onChange={(v) => setBank(i, "disbursed_bank", v)} disabled={bd} />
+                  <F label="Disbursed Amount (₹)" value={b.disbursed_amount} onChange={(v) => setBank(i, "disbursed_amount", v)} type="number" disabled={bd} />
+                  <F label="Commission %" value={b.commission_pct} onChange={(v) => setBank(i, "commission_pct", v)} type="number" disabled={bd} />
                   <div>
                     <label className="text-xs font-medium text-slate-500">Commission Amount</label>
                     <p className="mt-1 text-lg font-heading font-semibold text-emerald-600" data-testid={`commission-${i}`}>₹{Number(b.commission_amount || 0).toLocaleString("en-IN")}</p>
@@ -411,6 +413,10 @@ export default function LeadDetail() {
   const updateProcessingStatus = async (status) => { const { data } = await api.patch(`/leads/${leadId}/processing-status`, { status }); setLead(data); toast.success("Processing status updated"); };
 
   if (!lead) return <div className="p-8"><div className="h-8 w-8 rounded-full border-2 border-brand border-t-transparent animate-spin" /></div>;
+  const isAssignedPartner = user?.role === "growth_partner" && lead.assigned_partner_id === user?.user_id;
+  const isAssignedProcessor = user?.role === "processor" && lead.assigned_processor_id === user?.user_id;
+  const canEditInfo = user?.role === "admin" || user?.role === "ops" || isAssignedPartner || isAssignedProcessor;
+  const canEditBanks = user?.role === "admin" || isAssignedProcessor;
   const timeline = [...(lead.activities || [])].reverse();
   const calls = [...(lead.call_logs || [])].reverse();
 
@@ -496,7 +502,7 @@ export default function LeadDetail() {
         </div>
 
         <div className="lg:col-span-2 space-y-6">
-          {lead.status === "FILE" && <FileCard key={lead.updated_at} lead={lead} onSave={saveFile} canEdit={user?.role === "admin" || user?.role === "ops"} canStatus={isStaffLike} onUpdateStatus={updateProcessingStatus} />}
+          {lead.status === "FILE" && <FileCard key={lead.updated_at} lead={lead} onSave={saveFile} canEditInfo={canEditInfo} canEditBanks={canEditBanks} canStatus={canEditBanks} onUpdateStatus={updateProcessingStatus} />}
           {lead.status === "FILE" && (user?.role === "admin" || user?.role === "ops" || (user?.role === "growth_partner" && lead.assigned_partner_id === user?.user_id) || (user?.role === "processor" && lead.assigned_processor_id === user?.user_id)) && <DocumentsCard lead={lead} reload={load} />}
 
           <div className="bg-white border border-slate-200 rounded-md p-5 shadow-sm">

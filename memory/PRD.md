@@ -19,6 +19,7 @@ A copy of BankEzee CRM where leads auto-import from a Google Sheet (with extra f
 - PRODUCTION: https://meta.bankezee.com (redeploy needed to push preview changes)
 
 ## Implemented (latest first)
+- 2026-06: **File card role permissions** — general file-info fields editable+saveable by admin/ops/assigned growth partner/assigned processor; Bank Eligibilities & File Processing Status editable only by admin/assigned processor (server preserves banks for others; processing-status returns 403 for ops/partner); Notes addable by anyone with lead access.
 - 2026-06: **Growth-partner FILE flow** — setting status to FILE via the status buttons now prompts "Documents received? yes/no" (FileStatusModal) and stores `docs_received`; assigned growth partners can view/upload/download/delete documents on their FILE leads.
 - 2026-06: **Processor visibility fix** — `list_leads`, `files/stats`, `files/report`, and single-lead GET now branch on role==processor → `assigned_processor_id`, so processors see their files in Files/Leads/File Reports and can open the lead detail.
 - 2026-06: **Partner→Processor mapping** — admin/ops set a default processor per growth partner (User Management "Default Processor" column, `PATCH /users/{id}/default-processor`). When that partner's lead becomes a FILE, the mapped processor is auto-assigned (if none set); admin/ops can still change it manually. Auto-assign runs on both status-button and call-modal FILE paths.

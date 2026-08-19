@@ -760,7 +760,10 @@ async def add_note(lead_id: str, inp: NoteInput, user: dict = Depends(get_curren
     lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
-    if user.get("role") not in STAFF_ROLES and lead.get("assigned_partner_id") != user["user_id"]:
+    role = user.get("role")
+    if not (role in STAFF_ROLES
+            or (role == "growth_partner" and lead.get("assigned_partner_id") == user["user_id"])
+            or (role == "processor" and lead.get("assigned_processor_id") == user["user_id"])):
         raise HTTPException(status_code=403, detail="Not authorized")
     note = {"text": inp.text, "author": user["name"], "at": now_iso()}
     activity = {"type": "note", "detail": f"{user['name']} added a note", "at": now_iso()}
@@ -806,12 +809,21 @@ async def log_call(lead_id: str, inp: CallLogInput, user: dict = Depends(get_cur
 
 
 @api_router.patch("/leads/{lead_id}/file")
-async def save_file(lead_id: str, inp: FileInput, user: dict = Depends(require_staff)):
+async def save_file(lead_id: str, inp: FileInput, user: dict = Depends(get_current_user)):
     lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
+    role = user.get("role")
+    allowed = (role in STAFF_ROLES
+               or (role == "growth_partner" and lead.get("assigned_partner_id") == user["user_id"])
+               or (role == "processor" and lead.get("assigned_processor_id") == user["user_id"]))
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    data = dict(inp.data or {})
+    if role not in ("admin", "processor"):
+        data["banks"] = (lead.get("file") or {}).get("banks", [])
     activity = {"type": "file", "detail": f"{user['name']} updated file details", "at": now_iso()}
-    await db.leads.update_one({"lead_id": lead_id}, {"$set": {"file": inp.data, "updated_at": now_iso()},
+    await db.leads.update_one({"lead_id": lead_id}, {"$set": {"file": data, "updated_at": now_iso()},
                               "$push": {"activities": activity}})
     updated = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
     if user.get("role") == "processor":
@@ -1097,7 +1109,7 @@ async def processing_statuses(user: dict = Depends(get_current_user)):
 
 @api_router.patch("/leads/{lead_id}/processing-status")
 async def update_processing_status(lead_id: str, inp: ProcStatusInput, user: dict = Depends(get_current_user)):
-    if user.get("role") not in ("admin", "ops", "processor"):
+    if user.get("role") not in ("admin", "processor"):
         raise HTTPException(status_code=403, detail="Not authorized")
     if inp.status not in PROCESSING_STATUSES:
         raise HTTPException(status_code=400, detail="Invalid processing status")

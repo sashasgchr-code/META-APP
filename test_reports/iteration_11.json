@@ -1,0 +1,22 @@
+{
+  "summary": "Iteration 11 - Verified FILE lead card role-based permissions across Growth Partner, Ops, Processor and Admin. Backend enforcement (11/11 tests pass) and frontend testid visibility (4/4 roles pass) both work as specified.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter11_file_permissions.py",
+    "/app/test_reports/pytest/iter11_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is ~1378 lines - consider splitting into routers per resource for maintainability.",
+    "save_file endpoint silently drops bank changes for non-admin/processor roles - could add explicit 200 response note or 403 when payload attempts a diff, but current UX-friendly behavior is acceptable."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter11_file_permissions.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin: sasha.sgchr@gmail.com/Admin@123456; Ops: rama.saffronglobal@gmail.com/Ops@123456; Processor: teja@bankezee.com/Processor@123; Partner: sasha@neosales.org/Sas12sa!!",
+  "seed_data_creation": "None. Mutated mother_name and banks on lead_8d6e6756c1c8 as part of tests (final state has HDFC bank + Underwriting status set by admin).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend tokens are returned as `session_token`, not `token` in /api/auth/login response. Use it as Bearer in Authorization header. PROCESSING_STATUSES uses human-readable strings like 'Sent for Login', 'Underwriting', not underscored constants. Lead lead_8d6e6756c1c8 is FILE stage with partner Sasha lucas and processor Teja assigned.",
+  "rca of the issue": "N/A - all specified behaviors work correctly. Verified: (a) GP/Ops save PATCHes /leads/{id}/file with a banks[] payload but server preserves existing banks (returns unchanged banks array). (b) GP/Ops PATCH /leads/{id}/processing-status returns 403. (c) Processor/Admin both succeed on banks + processing-status. (d) Notes work for all four roles. (e) Frontend renders/hides add-bank-btn, update-status-btn, processing-status-select correctly per role while keeping save-file-btn, note-input, add-note-btn always visible for authorized users."
+}
