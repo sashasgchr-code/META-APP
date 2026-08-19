@@ -1311,6 +1311,27 @@ async def cron_sync(request: Request, authorization: Optional[str] = Header(None
     return {"accepted": True}
 
 
+# ------------------- Google Sheet webhook (Apps Script onChange) -------------------
+_last_webhook_sync = {"at": 0.0}
+
+
+@api_router.post("/webhook/sheet-sync")
+async def webhook_sheet_sync(request: Request, token: Optional[str] = None, authorization: Optional[str] = Header(None)):
+    # Accept the shared secret via ?token= or Authorization: Bearer <secret>
+    provided = token or ""
+    if authorization and authorization.startswith("Bearer "):
+        provided = authorization[7:]
+    if not provided or not hmac.compare_digest(provided, WEBHOOK_CRON_SECRET):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    # Debounce bursts of onChange events (e.g. multiple rows appended at once)
+    now = datetime.now(timezone.utc).timestamp()
+    if now - _last_webhook_sync["at"] < 5:
+        return {"accepted": True, "debounced": True}
+    _last_webhook_sync["at"] = now
+    asyncio.create_task(sync_leads_from_sheet())
+    return {"accepted": True}
+
+
 @api_router.get("/")
 async def root():
     return {"message": "Bankezee CRM API"}
