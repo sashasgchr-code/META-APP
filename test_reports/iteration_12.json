@@ -1,0 +1,22 @@
+{
+  "summary": "Iteration 12: Verified BankEzee CRM in-process auto-sync scheduler. All 6 backend tests passed. The scheduler starts on FastAPI startup, logs 'Started in-process auto-sync scheduler', and emits periodic 'Auto-sync tick' entries. Core reproduction test: hard-deleted a sheet-sourced lead directly from MongoDB (by sheet_id) WITHOUT triggering any manual sync; the lead reappeared within the wait window purely via the background scheduler, proving auto-sync works independently of the external cron. Cron endpoint returns 401 without bearer and 200 with correct WEBHOOK_CRON_SECRET. Manual /api/leads/sync (admin, cookie session) returns {imported, updated, total_rows}.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter12_auto_sync_scheduler.py",
+    "/app/test_reports/pytest/iter12_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is large (>1300 lines). Consider splitting into routers (auth, leads, cron, files) for maintainability.",
+    "Auth uses HTTP-only session cookies via /api/auth/login; there is no Bearer JWT path. Frontend/testers must use cookies. Documenting this in README would prevent confusion."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter12_auto_sync_scheduler.py"],
+  "success_rate": {"backend": "100%", "frontend": "N/A"},
+  "test_credentials": "Admin sasha.sgchr@gmail.com / Admin@123456 (session cookie auth)",
+  "seed_data_creation": "None. Deleted one existing sheet-sourced lead by sheet_id; auto-sync re-imported it from the Google Sheet as expected.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Auth is cookie-based (session_token httpOnly cookie set by POST /api/auth/login). Use requests.Session(). SYNC_INTERVAL_MINUTES=2. Background scheduler task started from FastAPI startup event; verify via grep 'Auto-sync tick' in /var/log/supervisor/backend.err.log. WEBHOOK_CRON_SECRET in backend/.env.",
+  "rca of the issue": "Original bug: leads not syncing until manual click because auto-sync relied on external .emergent/crons.yml cron which was unreliable. Fix (verified): server.py adds periodic_sync_loop() spawned as asyncio task in FastAPI startup handler, runs every SYNC_INTERVAL_MINUTES*60s (min 60s) with 20s initial delay, calling sync_leads_from_sheet() in try/except. Confirmed by deleting a lead from Mongo and observing re-insert without any manual/cron trigger."
+}

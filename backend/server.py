@@ -1327,6 +1327,23 @@ app.add_middleware(
 )
 
 
+_background_tasks = []
+
+
+async def periodic_sync_loop():
+    interval = max(60, int(os.environ.get("SYNC_INTERVAL_MINUTES", "5")) * 60)
+    await asyncio.sleep(20)  # let startup settle
+    while True:
+        try:
+            result = await sync_leads_from_sheet()
+            logger.info(f"Auto-sync tick: {result.get('imported')} new, {result.get('updated')} updated")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error(f"Auto-sync tick failed: {e}")
+        await asyncio.sleep(interval)
+
+
 @app.on_event("startup")
 async def seed_admin():
     await db.leads.create_index("sheet_id", unique=True, sparse=True)
@@ -1370,8 +1387,13 @@ async def seed_admin():
             await sync_leads_from_sheet()
         except Exception as e:
             logger.error(f"Initial sheet sync failed: {e}")
+    # Self-contained periodic auto-sync (does not depend on external cron infra)
+    _background_tasks.append(asyncio.create_task(periodic_sync_loop()))
+    logger.info("Started in-process auto-sync scheduler")
 
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    for t in _background_tasks:
+        t.cancel()
     client.close()
