@@ -1,0 +1,1 @@
+{"indexes":[{"v":{"$numberInt":"2"},"key":{"_id":{"$numberInt":"1"}},"name":"_id_"},{"v":{"$numberInt":"2"},"key":{"sheet_id":{"$numberInt":"1"}},"name":"sheet_id_1","unique":true,"sparse":true}],"uuid":"5249c06e2f804f9f984b6cbad43cbb93","collectionName":"leads","type":"collection"}
